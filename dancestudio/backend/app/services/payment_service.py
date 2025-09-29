@@ -1,8 +1,11 @@
 import uuid
 from datetime import datetime, timedelta
+from typing import Any
+
 from sqlalchemy.orm import Session
-from ..db import models
+
 from ..config import get_settings
+from ..db import models
 from .payments import gateway
 
 
@@ -13,7 +16,7 @@ def create_payment(
     purpose: models.PaymentPurpose,
     product: models.Product | None = None,
     slot: models.ClassSlot | None = None,
-) -> models.Payment:
+) -> tuple[models.Payment, dict[str, Any]]:
     order_id = str(uuid.uuid4())
     settings = get_settings()
     payment = models.Payment(
@@ -30,7 +33,7 @@ def create_payment(
     db.commit()
     db.refresh(payment)
     gateway_client = gateway.get_gateway(settings)
-    gateway_client.create_payment(
+    gateway_response = gateway_client.create_payment(
         order_id=order_id,
         amount=amount,
         currency=payment.currency,
@@ -40,7 +43,7 @@ def create_payment(
     )
     if settings.payment_provider == "stub":
         payment = apply_payment(db, payment, models.PaymentStatus.paid)
-    return payment
+    return payment, gateway_response
 
 
 def apply_payment(db: Session, payment: models.Payment, status: models.PaymentStatus) -> models.Payment:

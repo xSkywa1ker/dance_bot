@@ -23,4 +23,24 @@ def slots_keyboard(direction_id: int, slots: Iterable[SlotButton]) -> InlineKeyb
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-__all__ = ["slots_keyboard", "SlotButton"]
+def slot_actions_keyboard(direction_id: int, slot_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Записаться",
+                    callback_data=f"book_slot:{direction_id}:{slot_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Назад",
+                    callback_data=f"back_to_schedule:{direction_id}",
+                ),
+                InlineKeyboardButton(text="Главное меню", callback_data="back_main"),
+            ],
+        ]
+    )
+
+
+__all__ = ["slots_keyboard", "slot_actions_keyboard", "SlotButton"]

@@ -37,14 +37,47 @@ class Slot(TypedDict, total=False):
     status: str
 
 
+class BookingSlot(TypedDict, total=False):
+    id: int
+    direction_id: int
+    direction_name: str
+    starts_at: str
+    duration_min: int
+    price_single_visit: float | None
+    allow_subscription: bool
+
+
+class Booking(TypedDict, total=False):
+    id: int
+    status: str
+    slot: BookingSlot
+    needs_payment: bool
+    payment_status: str | None
+    payment_url: str | None
+
+
 _settings = get_settings()
 
 
 async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     async with httpx.AsyncClient(base_url=_settings.api_base_url, timeout=10.0) as client:
-        response = await client.get(path, params=params)
+        response = await client.get(path, params=params, headers=_headers())
         response.raise_for_status()
         return response.json()
+
+
+async def _post(path: str, json: dict[str, Any]) -> Any:
+    async with httpx.AsyncClient(base_url=_settings.api_base_url, timeout=10.0) as client:
+        response = await client.post(path, json=json, headers=_headers())
+        response.raise_for_status()
+        return response.json()
+
+
+def _headers() -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if _settings.api_token:
+        headers["X-Bot-Token"] = _settings.api_token
+    return headers
 
 
 async def fetch_products(*, active_only: bool = True) -> list[Product]:
@@ -70,4 +103,39 @@ async def fetch_slots(*, direction_id: int | None = None) -> list[Slot]:
     return data
 
 
-__all__ = ["Product", "Direction", "Slot", "fetch_products", "fetch_directions", "fetch_slots"]
+async def sync_user(*, tg_id: int, full_name: str | None = None, phone: str | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"tg_id": tg_id}
+    if full_name is not None:
+        payload["full_name"] = full_name
+    if phone is not None:
+        payload["phone"] = phone
+    return await _post("/bot/users/sync", payload)
+
+
+async def fetch_bookings(*, tg_id: int) -> list[Booking]:
+    data = await _get(f"/bot/users/{tg_id}/bookings")
+    return data
+
+
+async def create_booking(*, tg_id: int, slot_id: int, full_name: str | None = None, phone: str | None = None) -> Booking:
+    payload: dict[str, Any] = {"tg_id": tg_id, "slot_id": slot_id}
+    if full_name is not None:
+        payload["full_name"] = full_name
+    if phone is not None:
+        payload["phone"] = phone
+    data = await _post("/bot/bookings", payload)
+    return data
+
+
+__all__ = [
+    "Product",
+    "Direction",
+    "Slot",
+    "Booking",
+    "fetch_products",
+    "fetch_directions",
+    "fetch_slots",
+    "fetch_bookings",
+    "create_booking",
+    "sync_user",
+]

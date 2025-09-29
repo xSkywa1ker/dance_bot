@@ -21,6 +21,7 @@ class Settings(BaseModel):
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_admin_ids: str = Field(default="", alias="TELEGRAM_ADMIN_IDS")
+    bot_api_token: str = Field(default="", alias="BOT_API_TOKEN")
 
     payment_provider: str = Field(default="stub", alias="PAYMENT_PROVIDER")
     payment_return_url: str = Field(default="http://localhost", alias="PAYMENT_RETURN_URL")
