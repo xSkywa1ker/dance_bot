@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 import httpx
@@ -96,9 +97,9 @@ async def fetch_directions(*, active_only: bool = True) -> list[Direction]:
 
 
 async def fetch_slots(*, direction_id: int | None = None) -> list[Slot]:
-    params: dict[str, Any] | None = None
+    params: dict[str, Any] = {"from_dt": datetime.now(timezone.utc).isoformat()}
     if direction_id is not None:
-        params = {"direction_id": direction_id}
+        params["direction_id"] = direction_id
     data = await _get("/slots", params=params)
     return data
 
@@ -127,6 +128,18 @@ async def create_booking(*, tg_id: int, slot_id: int, full_name: str | None = No
     return data
 
 
+async def create_subscription_payment(
+    *, tg_id: int, product_id: int, full_name: str | None = None, phone: str | None = None
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"tg_id": tg_id, "product_id": product_id}
+    if full_name is not None:
+        payload["full_name"] = full_name
+    if phone is not None:
+        payload["phone"] = phone
+    data = await _post("/bot/payments/subscription", payload)
+    return data
+
+
 __all__ = [
     "Product",
     "Direction",
@@ -138,4 +151,5 @@ __all__ = [
     "fetch_bookings",
     "create_booking",
     "sync_user",
+    "create_subscription_payment",
 ]

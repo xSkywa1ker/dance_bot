@@ -37,3 +37,19 @@ class Booking(Base):
 
     user = relationship("User")
     slot = relationship("ClassSlot", back_populates="bookings")
+
+    @property
+    def user_full_name(self) -> str | None:
+        return self.user.full_name if self.user else None
+
+    @property
+    def slot_starts_at(self) -> datetime | None:
+        if self.slot:
+            return self.slot.starts_at
+        return None
+
+    @property
+    def slot_direction_name(self) -> str | None:
+        if self.slot and self.slot.direction:
+            return self.slot.direction.name
+        return None

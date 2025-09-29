@@ -10,19 +10,41 @@ interface Booking {
   created_at: string
   user_id: number
   class_slot_id: number
+  user_full_name?: string | null
+  slot_starts_at?: string | null
+  slot_direction_name?: string | null
 }
 
 const columns: GridColDef<Booking>[] = [
   { field: 'id', headerName: 'ID', width: 80 },
   { field: 'status', headerName: 'Статус', width: 120 },
   {
+    field: 'slot_starts_at',
+    headerName: 'Время занятия',
+    flex: 1,
+    valueFormatter: (params) =>
+      params.value ? dayjs(params.value as string).format('DD.MM.YYYY HH:mm') : '—'
+  },
+  {
+    field: 'slot_direction_name',
+    headerName: 'Направление',
+    flex: 1,
+    valueGetter: (params) => params.row.slot_direction_name ?? '—'
+  },
+  {
+    field: 'user_full_name',
+    headerName: 'ФИО',
+    flex: 1,
+    valueGetter: (params) => params.row.user_full_name ?? '—'
+  },
+  {
     field: 'created_at',
     headerName: 'Создано',
-    flex: 1,
+    width: 180,
     valueFormatter: (params) => dayjs(params.value as string).format('DD.MM.YYYY HH:mm')
   },
-  { field: 'user_id', headerName: 'Пользователь', width: 150 },
-  { field: 'class_slot_id', headerName: 'Слот', width: 150 }
+  { field: 'user_id', headerName: 'ID пользователя', width: 140 },
+  { field: 'class_slot_id', headerName: 'ID слота', width: 120 }
 ]
 
 const BookingsPage = () => {

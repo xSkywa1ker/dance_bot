@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from ..db import models
@@ -11,15 +11,30 @@ class BookingError(Exception):
     pass
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _slot_starts_in_future(slot: models.ClassSlot) -> bool:
+    starts_at = slot.starts_at
+    if starts_at.tzinfo is None:
+        starts_at = starts_at.replace(tzinfo=timezone.utc)
+    return starts_at > _utc_now()
+
+
 def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models.Booking:
     if slot.status != SlotStatus.scheduled:
         raise BookingError("Slot is not available")
+    if not _slot_starts_in_future(slot):
+        raise BookingError("Slot start time is in the past")
     transaction_ctx = db.begin_nested() if db.in_transaction() else db.begin()
     with transaction_ctx:
         locked_slot = (
             db.execute(select(models.ClassSlot).where(models.ClassSlot.id == slot.id).with_for_update())
             .scalar_one()
         )
+        if not _slot_starts_in_future(locked_slot):
+            raise BookingError("Slot start time is in the past")
         active_bookings = db.scalar(
             select(func.count(models.Booking.id)).where(
                 models.Booking.class_slot_id == locked_slot.id,
@@ -37,8 +52,8 @@ def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models
                 models.Booking.class_slot_id == locked_slot.id,
             )
         ).scalar_one_or_none()
-        if existing:
-            return existing
+        if existing and existing.status in [BookingStatus.reserved, BookingStatus.confirmed]:
+            raise BookingError("Already booked")
         subscription = (
             db.execute(
                 select(models.Subscription)

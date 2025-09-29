@@ -6,23 +6,30 @@ from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.filters import CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from httpx import HTTPError
 
 from config import get_settings
 from keyboards import (
     directions_keyboard,
+    product_actions_keyboard,
+    products_keyboard,
     main_menu_keyboard,
     slots_keyboard,
     slot_actions_keyboard,
 )
 from services import (
+    create_booking,
+    create_subscription_payment,
     fetch_directions,
+    fetch_products,
     fetch_slots,
     fetch_bookings,
     sync_user,
 )
 from services.api_client import Direction
+from states.booking import BookingStates
 from utils import texts
 
 router = Router()
@@ -64,6 +71,21 @@ def _format_slot_time(slot: Mapping[str, object]) -> tuple[str, str]:
 def _direction_title(direction: Direction) -> str:
     name = direction.get("name", "Направление")
     return texts.direction_schedule_title(name)
+
+
+async def _prompt_full_name_if_missing(
+    message: Message,
+    state: FSMContext,
+    user_payload: Mapping[str, object] | None,
+) -> None:
+    if not message or not user_payload:
+        return
+    full_name = user_payload.get("full_name")
+    if isinstance(full_name, str) and full_name.strip():
+        await state.clear()
+        return
+    await state.set_state(BookingStates.ask_full_name)
+    await message.answer(texts.ASK_FULL_NAME)
 
 
 @router.message(CommandStart())
@@ -121,22 +143,117 @@ async def my_bookings(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "buy_subscription")
 async def show_products(callback: CallbackQuery) -> None:
+    try:
+        products = await fetch_products()
+    except HTTPError:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+
+    if not products:
+        await _safe_edit_message(
+            callback.message,
+            texts.NO_PRODUCTS,
+            reply_markup=main_menu_keyboard(),
+        )
+        await callback.answer()
+        return
+
     await _safe_edit_message(
         callback.message,
-        texts.SUBSCRIPTION_PURCHASE_SUCCESS,
-        reply_markup=main_menu_keyboard(),
+        texts.PRODUCTS_PROMPT,
+        reply_markup=products_keyboard(products),
     )
-    await callback.answer("Покупка успешно завершена")
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("product:"))
 async def product_details(callback: CallbackQuery) -> None:
+    try:
+        product_id = int(callback.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        return
+
+    try:
+        products = await fetch_products()
+    except HTTPError:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+
+    product = next((item for item in products if item.get("id") == product_id), None)
+    if not product:
+        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        return
+
     await _safe_edit_message(
         callback.message,
-        texts.SUBSCRIPTION_PURCHASE_SUCCESS,
-        reply_markup=main_menu_keyboard(),
+        texts.product_details(product),
+        reply_markup=product_actions_keyboard(product_id),
     )
-    await callback.answer("Покупка успешно завершена")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("purchase_product:"))
+async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
+    user = callback.from_user
+    message = callback.message
+    if not user or not message:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    try:
+        product_id = int(callback.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        return
+
+    try:
+        user_payload = await sync_user(tg_id=user.id, full_name=user.full_name)
+    except HTTPError:
+        user_payload = None
+
+    try:
+        products = await fetch_products()
+    except HTTPError:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+
+    product = next((item for item in products if item.get("id") == product_id), None)
+    if not product:
+        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        return
+
+    try:
+        payment_response = await create_subscription_payment(
+            tg_id=user.id,
+            product_id=product_id,
+        )
+    except HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        elif exc.response is not None and exc.response.status_code == 400:
+            detail = exc.response.json()
+            message_text = detail.get("detail") if isinstance(detail, dict) else None
+            if not isinstance(message_text, str) or not message_text:
+                message_text = texts.API_ERROR
+            await callback.answer(message_text, show_alert=True)
+        else:
+            await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+
+    payment_url = payment_response.get("payment_url")
+    price = texts.format_price(product.get("price"))
+    text = texts.subscription_payment_details(product.get("name", ""), price or None)
+    buttons: list[list[InlineKeyboardButton]] = []
+    if isinstance(payment_url, str) and payment_url:
+        buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
+    buttons.append([InlineKeyboardButton(text="Главное меню", callback_data="back_main")])
+    await _safe_edit_message(
+        message,
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await callback.answer("Ссылка на оплату отправлена")
+    await _prompt_full_name_if_missing(message, state, user_payload)
 
 
 @router.callback_query(F.data == "book_class")
@@ -265,14 +382,71 @@ async def back_to_schedule(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("book_slot:"))
-async def book_slot(callback: CallbackQuery) -> None:
-    await _safe_edit_message(
-        callback.message,
-        texts.MAIN_MENU,
-        reply_markup=main_menu_keyboard(),
-    )
-    await callback.message.answer(texts.CLASS_PURCHASE_SUCCESS)
-    await callback.answer("Покупка успешно завершена")
+async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
+    user = callback.from_user
+    message = callback.message
+    if not user or not message:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    try:
+        _, _, slot_id_str = callback.data.split(":", 2)
+        slot_id = int(slot_id_str)
+    except (ValueError, IndexError):
+        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        return
+
+    try:
+        user_payload = await sync_user(tg_id=user.id, full_name=user.full_name)
+    except HTTPError:
+        user_payload = None
+
+    try:
+        booking = await create_booking(tg_id=user.id, slot_id=slot_id)
+    except HTTPError as exc:
+        if exc.response is not None:
+            detail = exc.response.json()
+            detail_text = detail.get("detail") if isinstance(detail, dict) else None
+            status_code = exc.response.status_code
+            if status_code == 409 and detail_text == "Already booked":
+                await callback.answer(texts.ALREADY_BOOKED, show_alert=True)
+            elif status_code == 409 and detail_text == "Slot start time is in the past":
+                await callback.answer(texts.PAST_SLOT_ERROR, show_alert=True)
+            elif status_code == 409 and detail_text == "No free seats":
+                await callback.answer(texts.NO_SEATS_ERROR, show_alert=True)
+            else:
+                message_text = detail_text if isinstance(detail_text, str) else texts.API_ERROR
+                await callback.answer(message_text, show_alert=True)
+        else:
+            await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+
+    slot = booking.get("slot", {})
+    _, long_label = _format_slot_time(slot)
+    direction_name = slot.get("direction_name", "")
+    price_label = texts.format_price(slot.get("price_single_visit"))
+    reply_markup: InlineKeyboardMarkup | None = None
+    if booking.get("needs_payment"):
+        payment_url = booking.get("payment_url")
+        buttons: list[list[InlineKeyboardButton]] = []
+        if isinstance(payment_url, str) and payment_url:
+            buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
+        buttons.append([InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")])
+        buttons.append([InlineKeyboardButton(text="Главное меню", callback_data="back_main")])
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+        text = texts.booking_payment_required(direction_name, long_label, price_label or None)
+    else:
+        reply_markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
+                [InlineKeyboardButton(text="Главное меню", callback_data="back_main")],
+            ]
+        )
+        text = texts.booking_confirmed(direction_name, long_label)
+
+    await _safe_edit_message(message, texts.MAIN_MENU, reply_markup=main_menu_keyboard())
+    await message.answer(text, reply_markup=reply_markup)
+    await callback.answer()
+    await _prompt_full_name_if_missing(message, state, user_payload)
 
 
 @router.callback_query(F.data == "back_to_directions")
@@ -303,3 +477,22 @@ async def back_to_main(callback: CallbackQuery) -> None:
         reply_markup=main_menu_keyboard(),
     )
     await callback.answer()
+
+
+@router.message(BookingStates.ask_full_name)
+async def save_full_name(message: Message, state: FSMContext) -> None:
+    user = message.from_user
+    full_name = (message.text or "").strip()
+    if not user:
+        await message.answer(texts.API_ERROR)
+        return
+    if not full_name:
+        await message.answer(texts.FULL_NAME_INVALID)
+        return
+    try:
+        await sync_user(tg_id=user.id, full_name=full_name)
+    except HTTPError:
+        await message.answer(texts.API_ERROR)
+        return
+    await message.answer(texts.FULL_NAME_SAVED)
+    await state.clear()
