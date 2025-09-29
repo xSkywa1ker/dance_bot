@@ -3,6 +3,7 @@
 ## Запуск
 
 ```bash
+cp deploy/env/.env.example deploy/env/.env
 make up           # поднять docker-compose
 make migrate      # применить миграции
 make seed         # загрузить тестовые данные
@@ -17,7 +18,7 @@ make seed         # загрузить тестовые данные
 - `bot/` — Telegram бот на aiogram
 - `backend/` — FastAPI приложение с Alembic, SQLAlchemy, APScheduler
 - `admin-frontend/` — React 18 + Vite админка
-- `deploy/` — docker-compose, Nginx и пример `.env`
+- `deploy/` — docker-compose, Nginx и примеры `.env`
 
 ## Доступы
 При выполнении `make seed` создаётся администратор:
