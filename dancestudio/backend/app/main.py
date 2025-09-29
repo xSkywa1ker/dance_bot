@@ -1,6 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api.routes import auth, directions, slots, products, bookings, payments, users, misc
+from .api.routes import (
+    auth,
+    directions,
+    slots,
+    products,
+    bookings,
+    payments,
+    users,
+    misc,
+    bot,
+)
 from .db.session import Base, engine, SessionLocal
 from .config import get_settings
 from .services.admin import ensure_admin_exists
@@ -24,6 +34,7 @@ app.include_router(bookings.router, prefix="/api/v1")
 app.include_router(payments.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(misc.router, prefix="/api/v1")
+app.include_router(bot.router, prefix="/api/v1")
 
 
 @app.on_event("startup")

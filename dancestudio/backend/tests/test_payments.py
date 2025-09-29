@@ -45,7 +45,7 @@ def test_payment_webhook_idempotent(db_session):
     db_session.add_all([slot, user])
     db_session.commit()
     booking = booking_service.book_class(db_session, user, slot)
-    payment = payment_service.create_payment(
+    payment, _ = payment_service.create_payment(
         db_session,
         user,
         amount=500,
@@ -70,7 +70,7 @@ def test_stub_payment_creates_subscription(db_session):
     db_session.add_all([user, product])
     db_session.commit()
 
-    payment = payment_service.create_payment(
+    payment, _ = payment_service.create_payment(
         db_session,
         user,
         amount=float(product.price),

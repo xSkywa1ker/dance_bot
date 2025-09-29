@@ -1,5 +1,8 @@
 from typing import Annotated
-from fastapi import Depends, HTTPException, status
+import secrets
+from typing import Annotated
+
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
@@ -41,3 +44,12 @@ def require_roles(*roles: str):
         return user
 
     return dependency
+
+
+def verify_bot_token(x_bot_token: str | None = Header(default=None)) -> None:
+    settings = get_settings()
+    expected = settings.bot_api_token
+    if not expected:
+        return
+    if not x_bot_token or not secrets.compare_digest(x_bot_token, expected):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bot token")

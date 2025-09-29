@@ -10,6 +10,10 @@ NO_DIRECTIONS = "Пока нет активных направлений"
 API_ERROR = "Не удалось получить данные. Попробуйте позже."
 ITEM_NOT_FOUND = "Элемент не найден. Попробуйте обновить список."
 DIRECTIONS_PROMPT = "Выберите направление:"
+NO_BOOKINGS = "У вас пока нет записей."
+BOOKINGS_TITLE = "Ваши записи:"
+BOOKING_CONFIRMED = "Запись подтверждена!"
+BOOKING_PAYMENT_REQUIRED = "Бронь создана, оплатите занятие, чтобы подтвердить запись."
 
 
 def _format_price(value: float | int | None) -> str:
@@ -65,4 +69,45 @@ def slot_details(direction_name: str, slot: Mapping[str, object], starts_at: str
     lines.append("Доступно по абонементу" if allow_subscription else "Без абонемента")
     if isinstance(status, str) and status != "scheduled":
         lines.append(f"Статус: {status}")
+    return "\n".join(lines)
+
+
+def booking_confirmed(direction_name: str, starts_at: str) -> str:
+    clean_direction = direction_name or "Занятие"
+    return (
+        f"{BOOKING_CONFIRMED}\n\n"
+        f"«{clean_direction}»\n{starts_at}\n"
+        "Ждём вас на занятии!"
+    )
+
+
+def booking_payment_required(direction_name: str, starts_at: str, price: str | None) -> str:
+    clean_direction = direction_name or "Занятие"
+    parts = [BOOKING_PAYMENT_REQUIRED, "", f"«{clean_direction}»", starts_at]
+    if price:
+        parts.append(f"Стоимость: {price}")
+    parts.append("Перейдите по ссылке ниже, чтобы оплатить занятие.")
+    return "\n".join(parts)
+
+
+def _status_label(status: str) -> str:
+    mapping = {
+        "confirmed": "подтверждена",
+        "reserved": "ожидает оплаты",
+        "canceled": "отменена",
+        "late_cancel": "поздняя отмена",
+    }
+    return mapping.get(status, status)
+
+
+def bookings_list(items: list[tuple[str, str]]) -> str:
+    if not items:
+        return NO_BOOKINGS
+    lines = [BOOKINGS_TITLE]
+    for title, status in items:
+        status_label = _status_label(status)
+        if status_label:
+            lines.append(f"• {title} ({status_label})")
+        else:
+            lines.append(f"• {title}")
     return "\n".join(lines)

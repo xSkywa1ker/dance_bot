@@ -29,7 +29,7 @@ def create_payment_endpoint(
         raise HTTPException(status_code=404, detail="User not found")
     product = db.get(models.Product, payload.product_id) if payload.product_id else None
     slot = db.get(models.ClassSlot, payload.class_slot_id) if payload.class_slot_id else None
-    payment = payment_service.create_payment(
+    payment, _ = payment_service.create_payment(
         db,
         user,
         amount=payload.amount,
