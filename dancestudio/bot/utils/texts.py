@@ -14,6 +14,14 @@ NO_BOOKINGS = "У вас пока нет записей."
 BOOKINGS_TITLE = "Ваши записи:"
 BOOKING_CONFIRMED = "Запись подтверждена!"
 BOOKING_PAYMENT_REQUIRED = "Бронь создана, оплатите занятие, чтобы подтвердить запись."
+SUBSCRIPTION_PURCHASE_SUCCESS = (
+    "Готово! Абонемент успешно оформлен.\n"
+    "Мы свяжемся с вами для подтверждения деталей."
+)
+CLASS_PURCHASE_SUCCESS = (
+    "Отлично! Занятие успешно оплачено.\n"
+    "Ждём вас на тренировке!"
+)
 
 
 def _format_price(value: float | int | None) -> str:
