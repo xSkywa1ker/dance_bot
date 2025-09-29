@@ -17,6 +17,7 @@ import DashboardPage from './pages/Dashboard'
 import DirectionsPage from './pages/Directions'
 import SchedulePage from './pages/Schedule'
 import ProductsPage from './pages/Products'
+import PaymentsPage from './pages/Payments'
 import BookingsPage from './pages/Bookings'
 import UsersPage from './pages/Users'
 import SettingsPage from './pages/Settings'
@@ -30,6 +31,7 @@ const tabs = [
   { label: 'Направления', component: <DirectionsPage /> },
   { label: 'Расписание', component: <SchedulePage /> },
   { label: 'Продукты', component: <ProductsPage /> },
+  { label: 'Платежи', component: <PaymentsPage /> },
   { label: 'Бронирования', component: <BookingsPage /> },
   { label: 'Пользователи', component: <UsersPage /> },
   { label: 'Настройки', component: <SettingsPage /> }

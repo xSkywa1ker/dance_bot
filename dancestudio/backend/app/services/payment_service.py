@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from ..db import models
 from ..config import get_settings
@@ -38,6 +38,8 @@ def create_payment(
         return_url=settings.payment_return_url,
         metadata={"user_id": user.id},
     )
+    if settings.payment_provider == "stub":
+        payment = apply_payment(db, payment, models.PaymentStatus.paid)
     return payment
 
 
@@ -46,15 +48,33 @@ def apply_payment(db: Session, payment: models.Payment, status: models.PaymentSt
         return payment
     payment.status = status
     payment.updated_at = datetime.utcnow()
-    if status == models.PaymentStatus.paid and payment.class_slot_id:
-        booking = (
-            db.query(models.Booking)
-            .filter_by(class_slot_id=payment.class_slot_id, user_id=payment.user_id)
-            .order_by(models.Booking.id.desc())
-            .first()
-        )
-        if booking:
-            booking.status = models.BookingStatus.confirmed
+    if status == models.PaymentStatus.paid:
+        if payment.class_slot_id:
+            booking = (
+                db.query(models.Booking)
+                .filter_by(class_slot_id=payment.class_slot_id, user_id=payment.user_id)
+                .order_by(models.Booking.id.desc())
+                .first()
+            )
+            if booking:
+                booking.status = models.BookingStatus.confirmed
+        if (
+            payment.purpose == models.PaymentPurpose.subscription
+            and payment.product_id
+        ):
+            product = db.get(models.Product, payment.product_id)
+            if product:
+                valid_from = datetime.utcnow()
+                validity_days = product.validity_days or 30
+                remaining_classes = product.classes_count or 0
+                subscription = models.Subscription(
+                    user_id=payment.user_id,
+                    product_id=product.id,
+                    remaining_classes=remaining_classes,
+                    valid_from=valid_from,
+                    valid_to=valid_from + timedelta(days=validity_days),
+                )
+                db.add(subscription)
     db.commit()
     db.refresh(payment)
     return payment

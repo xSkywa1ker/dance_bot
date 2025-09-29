@@ -25,6 +25,10 @@ class BasePaymentGateway(ABC):
 
 
 def get_gateway(settings: Settings) -> BasePaymentGateway:
+    if settings.payment_provider == "stub":
+        from .stub import StubGateway
+
+        return StubGateway(settings)
     if settings.payment_provider == "yookassa":
         from .yookassa import YooKassaGateway
 

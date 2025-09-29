@@ -14,7 +14,8 @@ class BookingError(Exception):
 def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models.Booking:
     if slot.status != SlotStatus.scheduled:
         raise BookingError("Slot is not available")
-    with db.begin():
+    transaction_ctx = db.begin_nested() if db.in_transaction() else db.begin()
+    with transaction_ctx:
         locked_slot = (
             db.execute(select(models.ClassSlot).where(models.ClassSlot.id == slot.id).with_for_update())
             .scalar_one()

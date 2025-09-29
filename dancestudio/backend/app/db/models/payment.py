@@ -29,6 +29,7 @@ class PaymentPurpose(str, PyEnum):
 
 
 class PaymentProvider(str, PyEnum):
+    stub = "stub"
     yookassa = "yookassa"
     stripe = "stripe"
     tinkoff = "tinkoff"
