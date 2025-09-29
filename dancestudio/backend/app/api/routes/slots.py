@@ -22,7 +22,7 @@ def list_slots(
         query = query.filter(models.ClassSlot.starts_at <= to_dt)
     if direction_id:
         query = query.filter(models.ClassSlot.direction_id == direction_id)
-    return query.all()
+    return query.order_by(models.ClassSlot.starts_at).all()
 
 
 @router.post("", response_model=schemas.ClassSlot)
@@ -67,3 +67,17 @@ def cancel_slot(
     slot.status = models.SlotStatus.canceled
     db.commit()
     return {"status": "canceled"}
+
+
+@router.delete("/{slot_id}")
+def delete_slot(
+    slot_id: int,
+    db: Session = Depends(get_db),
+    _: models.AdminUser = Depends(deps.require_roles("admin")),
+):
+    slot = db.get(models.ClassSlot, slot_id)
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot not found")
+    db.delete(slot)
+    db.commit()
+    return {"status": "deleted"}

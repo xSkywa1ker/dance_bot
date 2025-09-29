@@ -8,8 +8,14 @@ router = APIRouter(prefix="/directions", tags=["directions"])
 
 
 @router.get("", response_model=list[schemas.Direction])
-def list_directions(db: Session = Depends(get_db)):
-    return db.query(models.Direction).filter_by(is_active=True).all()
+def list_directions(
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.Direction)
+    if not include_inactive:
+        query = query.filter_by(is_active=True)
+    return query.all()
 
 
 @router.post("", response_model=schemas.Direction)
