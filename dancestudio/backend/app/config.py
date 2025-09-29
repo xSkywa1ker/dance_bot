@@ -28,6 +28,9 @@ class Settings(BaseModel):
     payment_api_key: str = Field(default="", alias="PAYMENT_API_KEY")
     payment_api_secret: str = Field(default="", alias="PAYMENT_API_SECRET")
 
+    default_admin_login: str = Field(default="admin", alias="DEFAULT_ADMIN_LOGIN")
+    default_admin_password: str = Field(default="admin123", alias="DEFAULT_ADMIN_PASSWORD")
+
     google_sheets_enabled: bool = Field(default=False, alias="GOOGLE_SHEETS_ENABLED")
     google_service_account_json_path: str = Field(
         default="", alias="GOOGLE_SERVICE_ACCOUNT_JSON_PATH"

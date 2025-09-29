@@ -42,7 +42,7 @@ def api_client():
             db.close()
 
     def override_get_current_admin():
-        return models.AdminUser(id=1, email="admin@example.com", role="admin")
+        return models.AdminUser(id=1, login="admin", role="admin")
 
     routes_pkg_name = "app.api.routes"
     routes_path = Path(__file__).resolve().parents[1] / "app/api/routes"
