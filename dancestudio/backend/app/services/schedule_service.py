@@ -19,5 +19,5 @@ def free_seat(db: Session, slot: models.ClassSlot) -> None:
         .first()
     )
     if wait_entry:
-        wait_entry.status = models.waitlist.WaitlistStatus.notified
+        wait_entry.status = models.WaitlistStatus.notified
         db.commit()
