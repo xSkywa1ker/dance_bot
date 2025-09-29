@@ -3,7 +3,7 @@
 ## Запуск
 
 ```bash
-cp deploy/env/.env.example deploy/env/.env
+cp deploy/env/.env.example deploy/env/.env  # необязательно, make up создаст файл автоматически
 make up           # поднять docker-compose
 make migrate      # применить миграции
 make seed         # загрузить тестовые данные
