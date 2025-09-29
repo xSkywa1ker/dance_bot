@@ -13,8 +13,9 @@ ensure-env:
 			exit 1; \
 		fi; \
 	fi
+
 up: ensure-env
-docker compose -f deploy/docker-compose.yml up -d --build
+	 docker compose -f deploy/docker-compose.yml up -d --build   # ← тут добавлен TAB
 
 down:
 	 docker compose -f deploy/docker-compose.yml down
