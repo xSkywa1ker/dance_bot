@@ -4,7 +4,7 @@ import { apiClient } from '../api/client'
 
 type AdminUser = {
   id: number
-  email: string
+  login: string
   role: string
 }
 
@@ -13,7 +13,7 @@ type AuthContextValue = {
   token: string | null
   initializing: boolean
   error: string | null
-  login: (email: string, password: string) => Promise<void>
+  login: (login: string, password: string) => Promise<void>
   logout: () => void
   clearError: () => void
 }
@@ -41,10 +41,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const clearError = useCallback(() => setError(null), [])
 
   const login = useCallback(
-    async (email: string, password: string) => {
+    async (loginValue: string, password: string) => {
       clearError()
       const formData = new URLSearchParams()
-      formData.set('username', email.trim())
+      formData.set('username', loginValue.trim())
       formData.set('password', password)
       try {
         const { data } = await apiClient.post('/auth/login', formData, {
@@ -59,7 +59,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } catch (loginError) {
         if (axios.isAxiosError(loginError)) {
           if (loginError.response?.status === 400) {
-            setError('Неверный email или пароль. Проверьте данные и попробуйте снова.')
+            setError('Неверный логин или пароль. Проверьте данные и попробуйте снова.')
           } else {
             setError('Не удалось выполнить вход. Попробуйте ещё раз позже.')
           }
