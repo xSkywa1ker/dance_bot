@@ -28,8 +28,30 @@ def products_keyboard(products: Sequence[Product]) -> InlineKeyboardMarkup:
         keyboard.append([
             InlineKeyboardButton(text=caption, callback_data=f"product:{product_id}")
         ])
-    keyboard.append([InlineKeyboardButton(text="Назад", callback_data="back_main")])
+    keyboard.append(
+        [
+            InlineKeyboardButton(text="Назад", callback_data="buy_subscription"),
+            InlineKeyboardButton(text="Главное меню", callback_data="back_main"),
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-__all__ = ["products_keyboard"]
+def product_actions_keyboard(product_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Купить",
+                    callback_data=f"purchase_product:{product_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(text="Назад", callback_data="buy_subscription"),
+                InlineKeyboardButton(text="Главное меню", callback_data="back_main"),
+            ],
+        ]
+    )
+
+
+__all__ = ["products_keyboard", "product_actions_keyboard"]

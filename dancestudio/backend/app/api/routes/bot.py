@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ...api import deps
 from ...db import models, schemas
@@ -42,6 +42,16 @@ class BotBookingResponse(BaseModel):
 
 class BotBookingRequest(SyncUserRequest):
     slot_id: int
+
+
+class BotSubscriptionPurchaseRequest(SyncUserRequest):
+    product_id: int
+
+
+class BotPaymentResponse(BaseModel):
+    payment_id: int
+    status: str
+    payment_url: str | None = None
 
 
 def _sync_user(db: Session, payload: SyncUserRequest) -> models.User:
@@ -122,10 +132,17 @@ def list_user_bookings(
         return []
     upcoming = (
         db.query(models.Booking)
+        .options(
+            selectinload(models.Booking.slot).selectinload(models.ClassSlot.direction)
+        )
         .join(models.ClassSlot)
         .filter(models.Booking.user_id == user.id)
         .filter(models.ClassSlot.starts_at >= datetime.utcnow())
-        .filter(models.Booking.status.in_([models.BookingStatus.confirmed, models.BookingStatus.reserved]))
+        .filter(
+            models.Booking.status.in_(
+                [models.BookingStatus.confirmed, models.BookingStatus.reserved]
+            )
+        )
         .order_by(models.ClassSlot.starts_at)
         .all()
     )
@@ -146,7 +163,13 @@ def create_booking(
     slot = db.get(models.ClassSlot, payload.slot_id)
     if not slot:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot not found")
-    booking = booking_service.book_class(db, user, slot)
+    try:
+        booking = booking_service.book_class(db, user, slot)
+    except booking_service.BookingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     db.refresh(booking)
     payment_url: str | None = None
     payment = _latest_payment(db, booking)
@@ -162,3 +185,36 @@ def create_booking(
         payment_url = gateway_response.get("confirmation_url") or gateway_response.get("return_url")
         db.refresh(booking)
     return _serialize_booking(booking, payment=payment, payment_url=payment_url)
+
+
+@router.post("/payments/subscription", response_model=BotPaymentResponse)
+def purchase_subscription(
+    payload: BotSubscriptionPurchaseRequest,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[None, Depends(deps.verify_bot_token)],
+) -> BotPaymentResponse:
+    user = _sync_user(db, payload)
+    product = db.get(models.Product, payload.product_id)
+    if not product or not product.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+    if product.type != models.ProductType.subscription:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Product is not a subscription",
+        )
+    payment, gateway_response = payment_service.create_payment(
+        db,
+        user,
+        amount=float(product.price),
+        purpose=models.PaymentPurpose.subscription,
+        product=product,
+    )
+    payment_url = gateway_response.get("confirmation_url") or gateway_response.get("return_url")
+    status_value = (
+        payment.status.value if hasattr(payment.status, "value") else str(payment.status)
+    )
+    return BotPaymentResponse(
+        payment_id=payment.id,
+        status=status_value,
+        payment_url=payment_url,
+    )

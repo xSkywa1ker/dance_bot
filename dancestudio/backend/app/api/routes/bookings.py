@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from ...api import deps
 from ...db.session import get_db
 from ...db import models, schemas
@@ -15,7 +15,13 @@ def list_bookings(
     db: Session = Depends(get_db),
     _: models.AdminUser = Depends(deps.require_roles("admin", "manager", "viewer")),
 ):
-    query = db.query(models.Booking)
+    query = (
+        db.query(models.Booking)
+        .options(
+            selectinload(models.Booking.user),
+            selectinload(models.Booking.slot).selectinload(models.ClassSlot.direction),
+        )
+    )
     if slot_id:
         query = query.filter(models.Booking.class_slot_id == slot_id)
     if user_id:

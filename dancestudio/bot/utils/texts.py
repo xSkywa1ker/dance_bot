@@ -4,8 +4,8 @@ from typing import Mapping
 
 MAIN_MENU = "Что вы хотите сделать?"
 CANCEL_RULES = "Отмена возможна не позднее чем за 24 часа до занятия."
-PRODUCTS_PROMPT = "Выберите доступный абонемент:"  # noqa: E305
 NO_PRODUCTS = "Пока нет доступных абонементов"
+PRODUCTS_PROMPT = "Выберите абонемент:"
 NO_DIRECTIONS = "Пока нет активных направлений"
 API_ERROR = "Не удалось получить данные. Попробуйте позже."
 ITEM_NOT_FOUND = "Элемент не найден. Попробуйте обновить список."
@@ -14,6 +14,7 @@ NO_BOOKINGS = "У вас пока нет записей."
 BOOKINGS_TITLE = "Ваши записи:"
 BOOKING_CONFIRMED = "Запись подтверждена!"
 BOOKING_PAYMENT_REQUIRED = "Бронь создана, оплатите занятие, чтобы подтвердить запись."
+SUBSCRIPTION_PAYMENT_REQUIRED = "Оплатите абонемент, чтобы завершить оформление."
 SUBSCRIPTION_PURCHASE_SUCCESS = (
     "Готово! Абонемент успешно оформлен.\n"
     "Мы свяжемся с вами для подтверждения деталей."
@@ -22,6 +23,12 @@ CLASS_PURCHASE_SUCCESS = (
     "Отлично! Занятие успешно оплачено.\n"
     "Ждём вас на тренировке!"
 )
+ALREADY_BOOKED = "Вы уже записаны на это занятие."
+ASK_FULL_NAME = "Пожалуйста, напишите ваше полное ФИО."
+FULL_NAME_SAVED = "Спасибо! Мы сохранили ваше ФИО."
+FULL_NAME_INVALID = "Пожалуйста, отправьте ФИО текстом."
+PAST_SLOT_ERROR = "Запись на прошедшее занятие недоступна."
+NO_SEATS_ERROR = "Свободных мест не осталось."
 
 
 def _format_price(value: float | int | None) -> str:
@@ -29,6 +36,10 @@ def _format_price(value: float | int | None) -> str:
         return ""
     text = f"{float(value):.2f}".rstrip("0").rstrip(".")
     return f"{text} ₽"
+
+
+def format_price(value: float | int | None) -> str:
+    return _format_price(value)
 
 
 def product_details(product: Mapping[str, object]) -> str:
@@ -95,6 +106,15 @@ def booking_payment_required(direction_name: str, starts_at: str, price: str | N
     if price:
         parts.append(f"Стоимость: {price}")
     parts.append("Перейдите по ссылке ниже, чтобы оплатить занятие.")
+    return "\n".join(parts)
+
+
+def subscription_payment_details(product_name: str, price: str | None) -> str:
+    clean_name = product_name or "Абонемент"
+    parts = [SUBSCRIPTION_PAYMENT_REQUIRED, "", f"«{clean_name}»"]
+    if price:
+        parts.append(f"Стоимость: {price}")
+    parts.append("Перейдите по ссылке ниже, чтобы оплатить.")
     return "\n".join(parts)
 
 
