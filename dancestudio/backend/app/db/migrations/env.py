@@ -1,13 +1,21 @@
 from logging.config import fileConfig
+from pathlib import Path
+import sys
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+
+# Ensure the project root is on the Python path so that absolute imports work
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
 # Alembic executes this module as a script, which means relative imports that
 # rely on package context (like "...config") fail because there is no parent
 # package information available.  Importing via the absolute package path keeps
 # the configuration accessible regardless of how the module is executed.
 from app.config import get_settings
-from ..base import Base
-from .. import models
+from app.db.base import Base
+from app.db import models
 
 config = context.config
 
