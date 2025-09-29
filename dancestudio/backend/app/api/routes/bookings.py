@@ -53,7 +53,7 @@ def cancel_booking(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
     try:
-        return booking_service.cancel_booking(db, booking, actor=admin.email)
+        return booking_service.cancel_booking(db, booking, actor=admin.login)
     except booking_service.BookingError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)

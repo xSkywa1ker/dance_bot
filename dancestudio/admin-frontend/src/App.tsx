@@ -56,7 +56,7 @@ function App() {
                 Dance Studio Admin
               </Typography>
               <Typography variant="body2" sx={{ mr: 3 }}>
-                {user.email}
+                {user.login}
               </Typography>
               <Button
                 color="inherit"
