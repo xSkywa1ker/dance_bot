@@ -28,7 +28,13 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean(), server_default=sa.true()),
     )
 
-    slot_status = postgresql.ENUM("scheduled", "canceled", "completed", name="slotstatus")
+    slot_status = postgresql.ENUM(
+        "scheduled",
+        "canceled",
+        "completed",
+        name="slotstatus",
+        create_type=False,
+    )
     slot_status.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -53,9 +59,10 @@ def upgrade() -> None:
         "attended",
         "no_show",
         name="bookingstatus",
+        create_type=False,
     )
     booking_status.create(op.get_bind(), checkfirst=True)
-    booking_source = postgresql.ENUM("bot", "admin", name="bookingsource")
+    booking_source = postgresql.ENUM("bot", "admin", name="bookingsource", create_type=False)
     booking_source.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -73,7 +80,12 @@ def upgrade() -> None:
     )
     op.create_index("ix_booking_class_slot", "bookings", ["class_slot_id"])
 
-    product_type = postgresql.ENUM("subscription", "single", name="producttype")
+    product_type = postgresql.ENUM(
+        "subscription",
+        "single",
+        name="producttype",
+        create_type=False,
+    )
     product_type.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -89,7 +101,13 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean(), server_default=sa.true()),
     )
 
-    subscription_status = postgresql.ENUM("active", "expired", "frozen", name="subscriptionstatus")
+    subscription_status = postgresql.ENUM(
+        "active",
+        "expired",
+        "frozen",
+        name="subscriptionstatus",
+        create_type=False,
+    )
     subscription_status.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -104,11 +122,31 @@ def upgrade() -> None:
     )
     op.create_index("ix_subscription_user", "subscriptions", ["user_id"])
 
-    payment_status = postgresql.ENUM("pending", "paid", "failed", "canceled", "refunded", name="paymentstatus")
+    payment_status = postgresql.ENUM(
+        "pending",
+        "paid",
+        "failed",
+        "canceled",
+        "refunded",
+        name="paymentstatus",
+        create_type=False,
+    )
     payment_status.create(op.get_bind(), checkfirst=True)
-    payment_purpose = postgresql.ENUM("single_visit", "subscription", name="paymentpurpose")
+    payment_purpose = postgresql.ENUM(
+        "single_visit",
+        "subscription",
+        name="paymentpurpose",
+        create_type=False,
+    )
     payment_purpose.create(op.get_bind(), checkfirst=True)
-    payment_provider = postgresql.ENUM("yookassa", "stripe", "tinkoff", "cloudpayments", name="paymentprovider")
+    payment_provider = postgresql.ENUM(
+        "yookassa",
+        "stripe",
+        "tinkoff",
+        "cloudpayments",
+        name="paymentprovider",
+        create_type=False,
+    )
     payment_provider.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -129,7 +167,14 @@ def upgrade() -> None:
     )
     op.create_index("ix_payments_order_id", "payments", ["order_id"], unique=True)
 
-    waitlist_status = postgresql.ENUM("active", "notified", "joined", "expired", name="waitliststatus")
+    waitlist_status = postgresql.ENUM(
+        "active",
+        "notified",
+        "joined",
+        "expired",
+        name="waitliststatus",
+        create_type=False,
+    )
     waitlist_status.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -141,7 +186,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("user_id", "class_slot_id", name="uq_waitlist_user_slot"),
     )
 
-    admin_role = postgresql.ENUM("admin", "manager", "viewer", name="adminrole")
+    admin_role = postgresql.ENUM("admin", "manager", "viewer", name="adminrole", create_type=False)
     admin_role.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -154,7 +199,7 @@ def upgrade() -> None:
         sa.Column("last_login_at", sa.DateTime(timezone=True)),
     )
 
-    actor_type = postgresql.ENUM("user", "admin", "system", name="actortype")
+    actor_type = postgresql.ENUM("user", "admin", "system", name="actortype", create_type=False)
     actor_type.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -181,3 +226,20 @@ def downgrade() -> None:
     op.drop_table("class_slots")
     op.drop_table("directions")
     op.drop_table("users")
+
+    enums_to_drop = [
+        "actortype",
+        "adminrole",
+        "waitliststatus",
+        "paymentprovider",
+        "paymentpurpose",
+        "paymentstatus",
+        "subscriptionstatus",
+        "producttype",
+        "bookingsource",
+        "bookingstatus",
+        "slotstatus",
+    ]
+
+    for enum_name in enums_to_drop:
+        op.execute(f"DROP TYPE IF EXISTS {enum_name} CASCADE")
