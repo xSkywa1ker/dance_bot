@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+
 from app.db import models
 from app.services import booking_service, payment_service
 
@@ -55,3 +56,35 @@ def test_payment_webhook_idempotent(db_session):
     payment_service.apply_payment(db_session, payment, models.PaymentStatus.paid)
     db_session.refresh(payment)
     assert payment.status == models.PaymentStatus.paid
+
+
+def test_stub_payment_creates_subscription(db_session):
+    user = models.User(tg_id=555)
+    product = models.Product(
+        type=models.ProductType.subscription,
+        name="Месячный абонемент",
+        price=3500,
+        classes_count=8,
+        validity_days=30,
+    )
+    db_session.add_all([user, product])
+    db_session.commit()
+
+    payment = payment_service.create_payment(
+        db_session,
+        user,
+        amount=float(product.price),
+        purpose=models.PaymentPurpose.subscription,
+        product=product,
+    )
+
+    db_session.refresh(payment)
+    assert payment.status == models.PaymentStatus.paid
+
+    subscription = (
+        db_session.query(models.Subscription)
+        .filter_by(user_id=user.id, product_id=product.id)
+        .one()
+    )
+    assert subscription.remaining_classes == product.classes_count
+    assert subscription.valid_to - subscription.valid_from == timedelta(days=product.validity_days)

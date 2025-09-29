@@ -1,6 +1,6 @@
 from functools import lru_cache
-from pydantic import BaseModel, Field
 import os
+from pydantic import BaseModel, Field
 
 
 class Settings(BaseModel):
@@ -22,7 +22,7 @@ class Settings(BaseModel):
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_admin_ids: str = Field(default="", alias="TELEGRAM_ADMIN_IDS")
 
-    payment_provider: str = Field(default="yookassa", alias="PAYMENT_PROVIDER")
+    payment_provider: str = Field(default="stub", alias="PAYMENT_PROVIDER")
     payment_return_url: str = Field(default="http://localhost", alias="PAYMENT_RETURN_URL")
     payment_webhook_secret: str = Field(default="", alias="PAYMENT_WEBHOOK_SECRET")
     payment_api_key: str = Field(default="", alias="PAYMENT_API_KEY")
