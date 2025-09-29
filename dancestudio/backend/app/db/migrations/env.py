@@ -1,7 +1,11 @@
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
-from ...config import get_settings
+# Alembic executes this module as a script, which means relative imports that
+# rely on package context (like "...config") fail because there is no parent
+# package information available.  Importing via the absolute package path keeps
+# the configuration accessible regardless of how the module is executed.
+from app.config import get_settings
 from ..base import Base
 from .. import models
 

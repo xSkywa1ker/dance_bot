@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
@@ -13,7 +14,10 @@ logging.basicConfig(level=logging.INFO)
 
 async def main() -> None:
     settings = get_settings()
-    bot = Bot(settings.token, parse_mode=ParseMode.HTML)
+    bot = Bot(
+        settings.token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     dp = Dispatcher(storage=MemoryStorage())
     dp.message.middleware(LoggingMiddleware())
     dp.include_router(menu.router)
