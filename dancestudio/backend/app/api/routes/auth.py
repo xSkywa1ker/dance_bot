@@ -28,8 +28,10 @@ def login(
     if not admin or not security.verify_password(form_data.password, admin.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid credentials")
     settings = get_settings()
-    expire = datetime.utcnow() + timedelta(minutes=settings.jwt_expire_min)
-    token = security.create_access_token({"sub": str(admin.id), "role": admin.role}, expire)
+    expires_delta = timedelta(minutes=settings.jwt_expire_min)
+    token = security.create_access_token(
+        {"sub": str(admin.id), "role": admin.role}, expires_delta
+    )
     admin.last_login_at = datetime.utcnow()
     db.commit()
     return TokenResponse(access_token=token, user={"id": admin.id, "login": admin.login, "role": admin.role})
