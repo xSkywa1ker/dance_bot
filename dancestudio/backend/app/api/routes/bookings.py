@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from ...api import deps
 from ...db.session import get_db
@@ -33,7 +33,12 @@ def create_booking(
     slot = db.get(models.ClassSlot, payload.class_slot_id)
     if not user or not slot:
         raise HTTPException(status_code=404, detail="User or slot not found")
-    booking = booking_service.book_class(db, user, slot)
+    try:
+        booking = booking_service.book_class(db, user, slot)
+    except booking_service.BookingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     return booking
 
 
@@ -47,7 +52,12 @@ def cancel_booking(
     booking = db.get(models.Booking, booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    return booking_service.cancel_booking(db, booking, actor=admin.email)
+    try:
+        return booking_service.cancel_booking(db, booking, actor=admin.email)
+    except booking_service.BookingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
 
 
 @router.get("/stats")
