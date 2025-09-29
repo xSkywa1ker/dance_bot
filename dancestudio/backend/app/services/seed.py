@@ -2,17 +2,13 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from ..db.session import SessionLocal
 from ..db import models
-from ..core import security
+from ..config import get_settings
+from .admin import ensure_admin_exists
 
 
 def seed(session: Session) -> None:
-    if session.query(models.AdminUser).count() == 0:
-        admin = models.AdminUser(
-            email="admin@example.com",
-            password_hash=security.get_password_hash("admin123"),
-            role=models.AdminRole.admin,
-        )
-        session.add(admin)
+    settings = get_settings()
+    ensure_admin_exists(session, settings.default_admin_login, settings.default_admin_password)
     if session.query(models.Direction).count() == 0:
         direction = models.Direction(name="Hip-Hop", description="Энергичные занятия")
         session.add(direction)

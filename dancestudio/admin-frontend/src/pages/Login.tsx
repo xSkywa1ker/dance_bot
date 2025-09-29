@@ -14,7 +14,7 @@ import { useAuth } from '../auth/AuthContext'
 
 const LoginPage = () => {
   const { login, error, clearError } = useAuth()
-  const [email, setEmail] = useState('')
+  const [loginValue, setLoginValue] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -22,7 +22,7 @@ const LoginPage = () => {
     event.preventDefault()
     setIsSubmitting(true)
     try {
-      await login(email, password)
+      await login(loginValue, password)
     } catch (submitError) {
       // error is handled by the auth context
     } finally {
@@ -30,11 +30,11 @@ const LoginPage = () => {
     }
   }
 
-  const handleEmailChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleLoginChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (error) {
       clearError()
     }
-    setEmail(event.target.value)
+    setLoginValue(event.target.value)
   }
 
   const handlePasswordChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -91,13 +91,13 @@ const LoginPage = () => {
           <Box component="form" onSubmit={handleSubmit} display="flex" flexDirection="column" gap={2}>
             {error && <Alert severity="error">{error}</Alert>}
             <TextField
-              label="Email"
-              type="email"
-              value={email}
-              onChange={handleEmailChange}
-              placeholder="admin@example.com"
+              label="Логин"
+              type="text"
+              value={loginValue}
+              onChange={handleLoginChange}
+              placeholder="admin"
               fullWidth
-              autoComplete="email"
+              autoComplete="username"
               required
             />
             <TextField
@@ -113,7 +113,7 @@ const LoginPage = () => {
               type="submit"
               variant="contained"
               size="large"
-              disabled={!email || !password || isSubmitting}
+              disabled={!loginValue || !password || isSubmitting}
               sx={{
                 mt: 1,
                 py: 1.5,
