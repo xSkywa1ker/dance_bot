@@ -5,7 +5,7 @@ from typing import Any, TypedDict
 
 import httpx
 
-from config import get_settings
+from dancestudio.bot.config import get_settings
 
 
 class Product(TypedDict, total=False):
@@ -76,16 +76,24 @@ class StudioAddresses(TypedDict, total=False):
 _settings = get_settings()
 
 
+def _request_path(path: str) -> str:
+    """Return a path relative to the configured API base URL."""
+
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    return path.lstrip("/")
+
+
 async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     async with httpx.AsyncClient(base_url=_settings.api_base_url, timeout=10.0) as client:
-        response = await client.get(path, params=params, headers=_headers())
+        response = await client.get(_request_path(path), params=params, headers=_headers())
         response.raise_for_status()
         return response.json()
 
 
 async def _post(path: str, json: dict[str, Any]) -> Any:
     async with httpx.AsyncClient(base_url=_settings.api_base_url, timeout=10.0) as client:
-        response = await client.post(path, json=json, headers=_headers())
+        response = await client.post(_request_path(path), json=json, headers=_headers())
         response.raise_for_status()
         return response.json()
 
