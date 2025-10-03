@@ -261,7 +261,6 @@ def create_booking(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
-    db.refresh(booking)
     payment_url: str | None = None
     payment = _latest_payment(db, booking)
     if booking.status == models.BookingStatus.reserved:
@@ -277,7 +276,9 @@ def create_booking(
             gateway_response.get("confirmation_url")
             or gateway_response.get("return_url")
         )
-        db.refresh(booking)
+    if db.in_transaction():
+        db.commit()
+    db.refresh(booking)
     return _serialize_booking(booking, payment=payment, payment_url=payment_url)
 
 

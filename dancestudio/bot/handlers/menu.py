@@ -33,8 +33,8 @@ from dancestudio.bot.services import (
     fetch_studio_addresses,
 )
 from dancestudio.bot.services.api_client import Direction
-from states.booking import BookingStates
 from dancestudio.bot.utils import texts
+from states.booking import BookingStates
 
 router = Router()
 _settings = get_settings()
