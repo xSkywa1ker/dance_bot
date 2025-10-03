@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 
 class ClassSlotBase(BaseModel):
-    direction_id: int
+    direction_id: int | None = None
     starts_at: datetime
     duration_min: int
     capacity: int
@@ -13,10 +13,11 @@ class ClassSlotBase(BaseModel):
 
 
 class ClassSlotCreate(ClassSlotBase):
-    pass
+    direction_id: int
 
 
 class ClassSlotUpdate(BaseModel):
+    direction_id: int | None = None
     starts_at: datetime | None = None
     duration_min: int | None = None
     capacity: int | None = None
