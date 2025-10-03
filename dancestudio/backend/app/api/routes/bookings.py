@@ -1,4 +1,7 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 from ...api import deps
 from ...db.session import get_db
@@ -68,10 +71,61 @@ def cancel_booking(
 
 @router.get("/stats")
 def booking_stats(db: Session = Depends(get_db), _: models.AdminUser = Depends(deps.require_roles("admin", "manager"))):
+    now = datetime.utcnow()
+    today_start = datetime(now.year, now.month, now.day)
+    today_end = today_start + timedelta(days=1)
+
     total = db.query(models.Booking).count()
     confirmed = (
         db.query(models.Booking)
         .filter(models.Booking.status == models.BookingStatus.confirmed)
         .count()
     )
-    return {"total": total, "confirmed": confirmed}
+    bookings_today = (
+        db.query(models.Booking)
+        .join(models.ClassSlot)
+        .filter(
+            models.Booking.status.in_(
+                [models.BookingStatus.confirmed, models.BookingStatus.reserved]
+            )
+        )
+        .filter(models.ClassSlot.starts_at >= today_start)
+        .filter(models.ClassSlot.starts_at < today_end)
+        .count()
+    )
+    completed_total = (
+        db.query(models.Booking)
+        .join(models.ClassSlot)
+        .filter(models.ClassSlot.starts_at < now)
+        .filter(
+            models.Booking.status.in_(
+                [models.BookingStatus.attended, models.BookingStatus.no_show]
+            )
+        )
+        .count()
+    )
+    attended_count = (
+        db.query(models.Booking)
+        .join(models.ClassSlot)
+        .filter(models.ClassSlot.starts_at < now)
+        .filter(models.Booking.status == models.BookingStatus.attended)
+        .count()
+    )
+    attendance_rate = (
+        (attended_count / completed_total) * 100 if completed_total else 0.0
+    )
+    week_start = now - timedelta(days=7)
+    weekly_revenue = db.scalar(
+        db.query(func.coalesce(func.sum(models.Payment.amount), 0))
+        .filter(models.Payment.status == models.PaymentStatus.paid)
+        .filter(models.Payment.created_at >= week_start)
+    )
+    weekly_revenue = float(weekly_revenue or 0)
+
+    return {
+        "total": total,
+        "confirmed": confirmed,
+        "bookings_today": bookings_today,
+        "attendance_rate": attendance_rate,
+        "weekly_revenue": weekly_revenue,
+    }

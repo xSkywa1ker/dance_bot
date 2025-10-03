@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, selectinload
 
 from ...api import deps
+from ...core.constants import RESERVATION_PAYMENT_TIMEOUT
 from ...db import models, schemas
 from ...db.session import get_db
 from ...services import booking_service, payment_service
@@ -38,6 +40,7 @@ class BotBookingResponse(BaseModel):
     needs_payment: bool
     payment_status: str | None = None
     payment_url: str | None = None
+    reservation_expires_at: datetime | None = None
 
 
 class BotBookingRequest(SyncUserRequest):
@@ -93,6 +96,12 @@ def _serialize_booking(
     if payment:
         payment_status = payment.status.value if hasattr(payment.status, "value") else str(payment.status)
     price = float(slot.price_single_visit) if slot.price_single_visit is not None else None
+    reservation_expires_at = None
+    if booking.status == models.BookingStatus.reserved:
+        created_at = booking.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        reservation_expires_at = created_at + RESERVATION_PAYMENT_TIMEOUT
     return BotBookingResponse(
         id=booking.id,
         status=status_value,
@@ -108,6 +117,7 @@ def _serialize_booking(
         needs_payment=status_value == models.BookingStatus.reserved.value,
         payment_status=payment_status,
         payment_url=payment_url,
+        reservation_expires_at=reservation_expires_at,
     )
 
 
@@ -130,6 +140,8 @@ def list_user_bookings(
     user = db.query(models.User).filter_by(tg_id=tg_id).first()
     if not user:
         return []
+    now = datetime.utcnow()
+    cutoff = now - RESERVATION_PAYMENT_TIMEOUT
     upcoming = (
         db.query(models.Booking)
         .options(
@@ -137,10 +149,14 @@ def list_user_bookings(
         )
         .join(models.ClassSlot)
         .filter(models.Booking.user_id == user.id)
-        .filter(models.ClassSlot.starts_at >= datetime.utcnow())
+        .filter(models.ClassSlot.starts_at >= now)
         .filter(
-            models.Booking.status.in_(
-                [models.BookingStatus.confirmed, models.BookingStatus.reserved]
+            or_(
+                models.Booking.status == models.BookingStatus.confirmed,
+                and_(
+                    models.Booking.status == models.BookingStatus.reserved,
+                    models.Booking.created_at >= cutoff,
+                ),
             )
         )
         .order_by(models.ClassSlot.starts_at)
@@ -149,7 +165,20 @@ def list_user_bookings(
     results: list[BotBookingResponse] = []
     for booking in upcoming:
         payment = _latest_payment(db, booking)
-        results.append(_serialize_booking(booking, payment=payment))
+        payment_url = None
+        if (
+            payment
+            and payment.status == models.PaymentStatus.pending
+            and payment.confirmation_url
+        ):
+            payment_url = payment.confirmation_url
+        results.append(
+            _serialize_booking(
+                booking,
+                payment=payment,
+                payment_url=payment_url,
+            )
+        )
     return results
 
 
@@ -182,7 +211,10 @@ def create_booking(
             purpose=models.PaymentPurpose.single_visit,
             slot=slot,
         )
-        payment_url = gateway_response.get("confirmation_url") or gateway_response.get("return_url")
+        payment_url = payment.confirmation_url or (
+            gateway_response.get("confirmation_url")
+            or gateway_response.get("return_url")
+        )
         db.refresh(booking)
     return _serialize_booking(booking, payment=payment, payment_url=payment_url)
 

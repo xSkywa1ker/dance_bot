@@ -49,6 +49,7 @@ class Payment(Base):
     provider: Mapped[PaymentProvider] = mapped_column(Enum(PaymentProvider))
     order_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     provider_payment_id: Mapped[str | None] = mapped_column(String(128))
+    confirmation_url: Mapped[str | None] = mapped_column(String(512))
     status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.pending)
     purpose: Mapped[PaymentPurpose] = mapped_column(Enum(PaymentPurpose))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

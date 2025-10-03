@@ -41,6 +41,14 @@ def create_payment(
         return_url=settings.payment_return_url,
         metadata={"user_id": user.id},
     )
+    confirmation_url = (
+        gateway_response.get("confirmation_url")
+        or gateway_response.get("return_url")
+    )
+    if confirmation_url:
+        payment.confirmation_url = confirmation_url
+        db.commit()
+        db.refresh(payment)
     if settings.payment_provider == "stub":
         payment = apply_payment(db, payment, models.PaymentStatus.paid)
     return payment, gateway_response
@@ -52,6 +60,7 @@ def apply_payment(db: Session, payment: models.Payment, status: models.PaymentSt
     payment.status = status
     payment.updated_at = datetime.utcnow()
     if status == models.PaymentStatus.paid:
+        payment.confirmation_url = None
         if payment.class_slot_id:
             booking = (
                 db.query(models.Booking)

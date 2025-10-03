@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Mapping, Sequence
 
 MAIN_MENU = "Что вы хотите сделать?"
 CANCEL_RULES = "Отмена возможна не позднее чем за 24 часа до занятия."
@@ -128,13 +128,34 @@ def _status_label(status: str) -> str:
     return mapping.get(status, status)
 
 
-def bookings_list(items: list[tuple[str, str]]) -> str:
+def bookings_list(items: Sequence[Mapping[str, object]]) -> str:
     if not items:
         return NO_BOOKINGS
     lines = [BOOKINGS_TITLE]
-    for title, status in items:
+    for item in items:
+        title = str(item.get("title", ""))
+        status = str(item.get("status", ""))
+        note_value = item.get("note")
+        note = str(note_value) if isinstance(note_value, str) and note_value else ""
         status_label = _status_label(status)
-        if status_label:
+        if status == "reserved":
+            payment_due_value = item.get("payment_due")
+            payment_due = (
+                str(payment_due_value)
+                if isinstance(payment_due_value, str) and payment_due_value
+                else ""
+            )
+            parts = [title]
+            if payment_due:
+                parts.append(f"бронь до {payment_due}")
+            if note:
+                parts.append(note)
+            else:
+                parts.append("требуется оплата")
+            lines.append("• " + " — ".join(part for part in parts if part))
+        elif note:
+            lines.append(f"• {title} ({note})")
+        elif status_label:
             lines.append(f"• {title} ({status_label})")
         else:
             lines.append(f"• {title}")
