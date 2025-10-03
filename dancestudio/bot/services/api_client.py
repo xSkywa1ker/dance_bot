@@ -5,7 +5,12 @@ from typing import Any, TypedDict
 
 import httpx
 
-from dancestudio.bot.config import get_settings
+try:  # pragma: no cover - executed depending on import layout
+    from dancestudio.bot.config import get_settings
+except ModuleNotFoundError as exc:  # pragma: no cover - fallback for Docker image
+    if exc.name and not exc.name.startswith("dancestudio"):
+        raise
+    from config import get_settings  # type: ignore[no-redef]
 
 
 class Product(TypedDict, total=False):
