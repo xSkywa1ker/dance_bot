@@ -28,6 +28,7 @@ from services import (
     fetch_products,
     fetch_slots,
     fetch_bookings,
+    fetch_subscriptions,
     sync_user,
     fetch_studio_addresses,
 )
@@ -121,6 +122,19 @@ def _format_reservation_deadline(raw_value: object) -> str:
     return dt_local.strftime("%d.%m %H:%M")
 
 
+def _format_subscription_valid_to(raw_value: object) -> str:
+    if not isinstance(raw_value, str):
+        return ""
+    value = raw_value.replace("Z", "+00:00") if raw_value.endswith("Z") else raw_value
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(_timezone).strftime("%d.%m.%Y")
+
+
 def _direction_title(direction: Direction) -> str:
     name = direction.get("name", "Направление")
     return texts.direction_schedule_title(name)
@@ -196,6 +210,11 @@ async def my_bookings(callback: CallbackQuery) -> None:
         await callback.answer(texts.API_ERROR, show_alert=True)
         return
 
+    try:
+        subscriptions = await fetch_subscriptions(tg_id=user.id)
+    except HTTPError:
+        subscriptions = None
+
     items: list[dict[str, object]] = []
     pay_rows: list[list[InlineKeyboardButton]] = []
     for booking in bookings:
@@ -225,7 +244,24 @@ async def my_bookings(callback: CallbackQuery) -> None:
             entry["note"] = " · ".join(note_parts)
         items.append(entry)
 
-    text = texts.bookings_list(items)
+    sections: list[str] = [texts.bookings_list(items)]
+    if subscriptions is not None:
+        subscription_items: list[dict[str, object]] = []
+        for subscription in subscriptions:
+            valid_to_label = _format_subscription_valid_to(
+                subscription.get("valid_to")
+            )
+            subscription_items.append(
+                {
+                    "product_name": subscription.get("product_name"),
+                    "remaining_classes": subscription.get("remaining_classes"),
+                    "total_classes": subscription.get("total_classes"),
+                    "valid_to_label": valid_to_label,
+                }
+            )
+        sections.append(texts.subscriptions_summary(subscription_items))
+
+    text = "\n\n".join(section for section in sections if section)
     keyboard_rows: list[list[InlineKeyboardButton]] = [*pay_rows]
     keyboard_rows.append(
         [InlineKeyboardButton(text="Обновить", callback_data="my_bookings")]

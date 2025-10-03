@@ -58,6 +58,17 @@ class Booking(TypedDict, total=False):
     reservation_expires_at: str | None
 
 
+class Subscription(TypedDict, total=False):
+    id: int
+    product_id: int
+    product_name: str
+    remaining_classes: int
+    total_classes: int | None
+    valid_from: str
+    valid_to: str
+    status: str
+
+
 class StudioAddresses(TypedDict, total=False):
     addresses: str
 
@@ -123,6 +134,11 @@ async def fetch_bookings(*, tg_id: int) -> list[Booking]:
     return data
 
 
+async def fetch_subscriptions(*, tg_id: int) -> list[Subscription]:
+    data = await _get(f"/bot/users/{tg_id}/subscriptions")
+    return data
+
+
 async def create_booking(*, tg_id: int, slot_id: int, full_name: str | None = None, phone: str | None = None) -> Booking:
     payload: dict[str, Any] = {"tg_id": tg_id, "slot_id": slot_id}
     if full_name is not None:
@@ -157,11 +173,13 @@ __all__ = [
     "Direction",
     "Slot",
     "Booking",
+    "Subscription",
     "StudioAddresses",
     "fetch_products",
     "fetch_directions",
     "fetch_slots",
     "fetch_bookings",
+    "fetch_subscriptions",
     "create_booking",
     "sync_user",
     "create_subscription_payment",

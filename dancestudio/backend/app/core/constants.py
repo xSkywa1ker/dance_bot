@@ -7,11 +7,13 @@ RESERVATION_PAYMENT_TIMEOUT = timedelta(minutes=20)
 
 # Metadata for system-driven booking cancellations
 PAYMENT_TIMEOUT_REASON = "payment_timeout"
+SLOT_CANCELED_REASON = "slot_canceled"
 SYSTEM_ACTOR = "system"
 
 
 __all__ = [
     "RESERVATION_PAYMENT_TIMEOUT",
     "PAYMENT_TIMEOUT_REASON",
+    "SLOT_CANCELED_REASON",
     "SYSTEM_ACTOR",
 ]

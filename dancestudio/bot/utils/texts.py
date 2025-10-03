@@ -9,9 +9,13 @@ PRODUCTS_PROMPT = "Выберите абонемент:"
 NO_DIRECTIONS = "Пока нет активных направлений"
 API_ERROR = "Не удалось получить данные. Попробуйте позже."
 ITEM_NOT_FOUND = "Элемент не найден. Попробуйте обновить список."
+from typing import Mapping, Sequence
+
 DIRECTIONS_PROMPT = "Выберите направление:"
 NO_BOOKINGS = "У вас пока нет записей."
 BOOKINGS_TITLE = "Ваши записи:"
+NO_SUBSCRIPTIONS = "Активных абонементов нет."
+SUBSCRIPTIONS_TITLE = "Ваши абонементы:"
 BOOKING_CONFIRMED = "Запись подтверждена!"
 BOOKING_PAYMENT_REQUIRED = "Бронь создана, оплатите занятие, чтобы подтвердить запись."
 SUBSCRIPTION_PAYMENT_REQUIRED = "Оплатите абонемент, чтобы завершить оформление."
@@ -190,4 +194,34 @@ def bookings_list(items: Sequence[Mapping[str, object]]) -> str:
             lines.append(f"• {title} ({status_label})")
         else:
             lines.append(f"• {title}")
+    return "\n".join(lines)
+
+
+def subscriptions_summary(items: Sequence[Mapping[str, object]]) -> str:
+    if not items:
+        return NO_SUBSCRIPTIONS
+    lines = [SUBSCRIPTIONS_TITLE]
+    for item in items:
+        name = str(item.get("product_name", "") or "Абонемент")
+        remaining_value = item.get("remaining_classes")
+        total_value = item.get("total_classes")
+        remaining_text = None
+        if isinstance(remaining_value, int):
+            if isinstance(total_value, int) and total_value > 0:
+                remaining_text = f"Занятий осталось: {remaining_value} из {total_value}"
+            else:
+                remaining_text = f"Занятий осталось: {remaining_value}"
+        valid_until = item.get("valid_to_label")
+        if not isinstance(valid_until, str) or not valid_until.strip():
+            raw_valid = item.get("valid_to")
+            if isinstance(raw_valid, str) and raw_valid.strip():
+                valid_until = raw_valid
+            else:
+                valid_until = ""
+        parts = [name]
+        if remaining_text:
+            parts.append(remaining_text)
+        if valid_until:
+            parts.append(f"Действует до: {valid_until}")
+        lines.append("• " + "; ".join(parts))
     return "\n".join(lines)
