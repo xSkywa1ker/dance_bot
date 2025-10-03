@@ -12,8 +12,8 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from httpx import HTTPError
 from urllib.parse import urlparse
 
-from ..config import get_settings
-from keyboards import (
+from dancestudio.bot.config import get_settings
+from dancestudio.bot.keyboards import (
     directions_keyboard,
     product_actions_keyboard,
     products_keyboard,
@@ -21,7 +21,7 @@ from keyboards import (
     slots_keyboard,
     slot_actions_keyboard,
 )
-from services import (
+from dancestudio.bot.services import (
     create_booking,
     create_subscription_payment,
     fetch_directions,
@@ -32,9 +32,9 @@ from services import (
     sync_user,
     fetch_studio_addresses,
 )
-from services.api_client import Direction
+from dancestudio.bot.services.api_client import Direction
 from states.booking import BookingStates
-from utils import texts
+from dancestudio.bot.utils import texts
 
 router = Router()
 _settings = get_settings()

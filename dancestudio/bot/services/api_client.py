@@ -5,7 +5,7 @@ from typing import Any, TypedDict
 
 import httpx
 
-from ..config import get_settings
+from dancestudio.bot.config import get_settings
 
 
 class Product(TypedDict, total=False):

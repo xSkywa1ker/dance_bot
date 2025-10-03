@@ -5,9 +5,9 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
-from .config import get_settings
-from handlers import menu
-from middlewares.logging import LoggingMiddleware
+from dancestudio.bot.config import get_settings
+from dancestudio.bot.handlers import menu
+from dancestudio.bot.middlewares.logging import LoggingMiddleware
 
 logging.basicConfig(level=logging.INFO)
 
