@@ -1,7 +1,7 @@
 """Add settings table
 
 Revision ID: 0004_add_settings_table
-Revises: 0003_add_payment_confirmation_url
+Revises: 0003_payment_confirmation_url
 Create Date: 2024-06-06
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "0004_add_settings_table"
-down_revision = "0003_add_payment_confirmation_url"
+down_revision = "0003_payment_confirmation_url"
 branch_labels = None
 depends_on = None
 
