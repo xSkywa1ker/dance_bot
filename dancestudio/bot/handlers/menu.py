@@ -12,7 +12,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from httpx import HTTPError
 from urllib.parse import urlparse
 
-from config import get_settings
+from ..config import get_settings
 from keyboards import (
     directions_keyboard,
     product_actions_keyboard,
