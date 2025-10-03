@@ -1,4 +1,15 @@
-from . import auth, directions, slots, products, bookings, payments, users, misc, bot
+from . import (
+    auth,
+    directions,
+    slots,
+    products,
+    bookings,
+    payments,
+    users,
+    misc,
+    bot,
+    settings,
+)
 
 __all__ = [
     "auth",
@@ -10,4 +21,5 @@ __all__ = [
     "users",
     "misc",
     "bot",
+    "settings",
 ]

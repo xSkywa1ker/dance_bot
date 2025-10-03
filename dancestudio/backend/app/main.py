@@ -10,6 +10,7 @@ from .api.routes import (
     users,
     misc,
     bot,
+    settings,
 )
 from .db.session import Base, engine, SessionLocal
 from .config import get_settings
@@ -35,6 +36,7 @@ app.include_router(payments.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(misc.router, prefix="/api/v1")
 app.include_router(bot.router, prefix="/api/v1")
+app.include_router(settings.router, prefix="/api/v1")
 
 
 @app.on_event("startup")
