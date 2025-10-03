@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from datetime import datetime
 from typing import Mapping
 from zoneinfo import ZoneInfo
@@ -9,6 +10,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from httpx import HTTPError
+from urllib.parse import urlparse
 
 from config import get_settings
 from keyboards import (
@@ -49,6 +51,39 @@ async def _safe_edit_message(
     if current_text == text and existing_markup_dump == new_markup_dump:
         return
     await message.edit_text(text, reply_markup=reply_markup)
+
+
+def _is_allowed_payment_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    hostname = (parsed.hostname or "").lower()
+    if not hostname or hostname == "localhost" or hostname.endswith(".local"):
+        return False
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return True
+    if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved:
+        return False
+    return True
+
+
+def _resolve_payment_url(raw_value: object) -> str | None:
+    if not isinstance(raw_value, str):
+        return None
+    value = raw_value.strip()
+    if not value:
+        return None
+    if _is_allowed_payment_url(value):
+        return value
+    fallback = _settings.payment_fallback_url.strip()
+    if fallback and _is_allowed_payment_url(fallback):
+        return fallback
+    return None
 
 
 def _format_slot_time(slot: Mapping[str, object]) -> tuple[str, str]:
@@ -171,20 +206,23 @@ async def my_bookings(callback: CallbackQuery) -> None:
         status = str(booking.get("status", ""))
         entry: dict[str, object] = {"title": title, "status": status}
         if status == "reserved":
-            entry["note"] = "не оплачено"
+            note_parts = ["не оплачено"]
             deadline_label = _format_reservation_deadline(
                 booking.get("reservation_expires_at")
             )
             if deadline_label:
                 entry["payment_due"] = deadline_label
-            payment_url = booking.get("payment_url")
-            if isinstance(payment_url, str) and payment_url:
+            payment_url = _resolve_payment_url(booking.get("payment_url"))
+            if payment_url:
                 button_text = (
                     f"Оплатить · {short_label}" if short_label else "Оплатить"
                 )
                 pay_rows.append(
                     [InlineKeyboardButton(text=button_text, url=payment_url)]
                 )
+            else:
+                note_parts.append(texts.PAYMENT_LINK_UNAVAILABLE_NOTE)
+            entry["note"] = " · ".join(note_parts)
         items.append(entry)
 
     text = texts.bookings_list(items)
@@ -299,11 +337,14 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.answer(texts.API_ERROR, show_alert=True)
         return
 
-    payment_url = payment_response.get("payment_url")
+    payment_url = _resolve_payment_url(payment_response.get("payment_url"))
     price = texts.format_price(product.get("price"))
-    text = texts.subscription_payment_details(product.get("name", ""), price or None)
+    link_available = payment_url is not None
+    text = texts.subscription_payment_details(
+        product.get("name", ""), price or None, link_available=link_available
+    )
     buttons: list[list[InlineKeyboardButton]] = []
-    if isinstance(payment_url, str) and payment_url:
+    if payment_url:
         buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
     buttons.append([InlineKeyboardButton(text="Главное меню", callback_data="back_main")])
     await _safe_edit_message(
@@ -311,7 +352,10 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
         text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
-    await callback.answer("Ссылка на оплату отправлена")
+    if link_available:
+        await callback.answer("Ссылка на оплату отправлена")
+    else:
+        await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
     await _prompt_full_name_if_missing(message, state, user_payload)
 
 
@@ -485,14 +529,17 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
     price_label = texts.format_price(slot.get("price_single_visit"))
     reply_markup: InlineKeyboardMarkup | None = None
     if booking.get("needs_payment"):
-        payment_url = booking.get("payment_url")
+        payment_url = _resolve_payment_url(booking.get("payment_url"))
+        link_available = payment_url is not None
         buttons: list[list[InlineKeyboardButton]] = []
-        if isinstance(payment_url, str) and payment_url:
+        if payment_url:
             buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
         buttons.append([InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")])
         buttons.append([InlineKeyboardButton(text="Главное меню", callback_data="back_main")])
         reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-        text = texts.booking_payment_required(direction_name, long_label, price_label or None)
+        text = texts.booking_payment_required(
+            direction_name, long_label, price_label or None, link_available=link_available
+        )
     else:
         reply_markup = InlineKeyboardMarkup(
             inline_keyboard=[
