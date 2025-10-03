@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.db import models
 from app.services import booking_service, payment_service
@@ -10,7 +10,7 @@ def test_auto_subscription_confirmation(db_session):
     db_session.commit()
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(days=3),
+        starts_at=datetime.now(timezone.utc) + timedelta(days=3),
         duration_min=60,
         capacity=2,
         price_single_visit=500,
@@ -21,8 +21,8 @@ def test_auto_subscription_confirmation(db_session):
         user=user,
         product=product,
         remaining_classes=5,
-        valid_from=datetime.utcnow() - timedelta(days=1),
-        valid_to=datetime.utcnow() + timedelta(days=30),
+        valid_from=datetime.now(timezone.utc) - timedelta(days=1),
+        valid_to=datetime.now(timezone.utc) + timedelta(days=30),
     )
     db_session.add_all([slot, user, product, subscription])
     db_session.commit()
@@ -36,7 +36,7 @@ def test_payment_webhook_idempotent(db_session):
     db_session.commit()
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(days=5),
+        starts_at=datetime.now(timezone.utc) + timedelta(days=5),
         duration_min=60,
         capacity=2,
         price_single_visit=500,

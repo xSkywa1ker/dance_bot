@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.constants import SLOT_CANCELED_REASON
 from app.db import models
@@ -12,7 +12,7 @@ def test_cancel_slot_refunds_subscription_and_creates_notifications(db_session):
 
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(days=2),
+        starts_at=datetime.now(timezone.utc) + timedelta(days=2),
         duration_min=60,
         capacity=5,
         price_single_visit=700,
@@ -29,8 +29,8 @@ def test_cancel_slot_refunds_subscription_and_creates_notifications(db_session):
         user=user_with_subscription,
         product=subscription_product,
         remaining_classes=5,
-        valid_from=datetime.utcnow() - timedelta(days=1),
-        valid_to=datetime.utcnow() + timedelta(days=10),
+        valid_from=datetime.now(timezone.utc) - timedelta(days=1),
+        valid_to=datetime.now(timezone.utc) + timedelta(days=10),
     )
     another_user = models.User(tg_id=2002)
 

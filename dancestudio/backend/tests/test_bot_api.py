@@ -1,7 +1,7 @@
 import importlib
 import sys
 import types
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -101,7 +101,7 @@ def test_create_booking_creates_payment(bot_api_client):
 
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(days=2),
+        starts_at=datetime.now(timezone.utc) + timedelta(days=2),
         duration_min=60,
         capacity=5,
         price_single_visit=700,
@@ -141,7 +141,7 @@ def test_list_bookings_returns_upcoming(bot_api_client):
 
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(days=1),
+        starts_at=datetime.now(timezone.utc) + timedelta(days=1),
         duration_min=45,
         capacity=3,
         price_single_visit=800,
@@ -178,7 +178,7 @@ def test_pending_booking_exposes_payment_link(bot_api_client):
 
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(hours=2),
+        starts_at=datetime.now(timezone.utc) + timedelta(hours=2),
         duration_min=60,
         capacity=10,
         price_single_visit=900,
@@ -226,7 +226,7 @@ def test_pending_booking_exposes_payment_link(bot_api_client):
     # Expire the reservation and ensure it is not returned anymore
     db = SessionLocal()
     stored_booking = db.query(models.Booking).one()
-    stored_booking.created_at = datetime.utcnow() - RESERVATION_PAYMENT_TIMEOUT - timedelta(minutes=1)
+    stored_booking.created_at = datetime.now(timezone.utc) - RESERVATION_PAYMENT_TIMEOUT - timedelta(minutes=1)
     db.commit()
     db.close()
 
@@ -236,6 +236,71 @@ def test_pending_booking_exposes_payment_link(bot_api_client):
     )
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_booking_consumes_subscription_when_available(bot_api_client):
+    client, SessionLocal = bot_api_client
+    db = SessionLocal()
+    direction = models.Direction(name="Contemporary")
+    db.add(direction)
+    db.commit()
+
+    user = models.User(tg_id=3333)
+    db.add(user)
+    db.commit()
+
+    slot = models.ClassSlot(
+        direction_id=direction.id,
+        starts_at=datetime.now(timezone.utc) + timedelta(days=3),
+        duration_min=60,
+        capacity=5,
+        price_single_visit=Decimal("1200.00"),
+    )
+    db.add(slot)
+    db.commit()
+
+    product = models.Product(
+        type=models.ProductType.subscription,
+        name="10 занятий",
+        price=Decimal("4500.00"),
+        classes_count=10,
+        validity_days=30,
+        direction_limit_id=direction.id,
+    )
+    db.add(product)
+    db.commit()
+
+    subscription = models.Subscription(
+        user_id=user.id,
+        product_id=product.id,
+        remaining_classes=4,
+        valid_from=datetime.now(timezone.utc) - timedelta(days=1),
+        valid_to=datetime.now(timezone.utc) + timedelta(days=14),
+        status=models.SubscriptionStatus.active,
+    )
+    db.add(subscription)
+    db.commit()
+    subscription_id = subscription.id
+    slot_id = slot.id
+    db.close()
+
+    response = client.post(
+        "/api/v1/bot/bookings",
+        json={"tg_id": 3333, "slot_id": slot_id},
+        headers={"X-Bot-Token": "bot-secret"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "confirmed"
+    assert payload["needs_payment"] is False
+
+    db = SessionLocal()
+    updated_subscription = db.get(models.Subscription, subscription_id)
+    assert updated_subscription.remaining_classes == 3
+    booking = db.query(models.Booking).filter_by(class_slot_id=slot_id, user_id=user.id).one()
+    assert booking.status == models.BookingStatus.confirmed
+    assert db.query(models.Payment).count() == 0
+    db.close()
 
 
 def test_bot_token_required(bot_api_client):

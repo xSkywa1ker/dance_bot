@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytest
 from app.db import models
 from app.services import booking_service
@@ -18,7 +18,7 @@ def create_slot(session, capacity=1):
     session.commit()
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(days=2),
+        starts_at=datetime.now(timezone.utc) + timedelta(days=2),
         duration_min=60,
         capacity=capacity,
         price_single_visit=500,

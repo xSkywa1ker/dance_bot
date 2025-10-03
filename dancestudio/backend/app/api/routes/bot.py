@@ -160,7 +160,7 @@ def list_user_bookings(
     user = db.query(models.User).filter_by(tg_id=tg_id).first()
     if not user:
         return []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     cutoff = now - RESERVATION_PAYMENT_TIMEOUT
     upcoming = (
         db.query(models.Booking)

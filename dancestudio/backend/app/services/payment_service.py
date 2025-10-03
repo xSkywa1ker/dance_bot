@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -58,7 +58,7 @@ def apply_payment(db: Session, payment: models.Payment, status: models.PaymentSt
     if payment.status == status:
         return payment
     payment.status = status
-    payment.updated_at = datetime.utcnow()
+    payment.updated_at = datetime.now(timezone.utc)
     if status == models.PaymentStatus.paid:
         payment.confirmation_url = None
         if payment.class_slot_id:
@@ -76,7 +76,7 @@ def apply_payment(db: Session, payment: models.Payment, status: models.PaymentSt
         ):
             product = db.get(models.Product, payment.product_id)
             if product:
-                valid_from = datetime.utcnow()
+                valid_from = datetime.now(timezone.utc)
                 validity_days = product.validity_days or 30
                 remaining_classes = product.classes_count or 0
                 subscription = models.Subscription(

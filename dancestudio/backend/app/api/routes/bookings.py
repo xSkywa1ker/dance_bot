@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
@@ -71,8 +71,8 @@ def cancel_booking(
 
 @router.get("/stats")
 def booking_stats(db: Session = Depends(get_db), _: models.AdminUser = Depends(deps.require_roles("admin", "manager"))):
-    now = datetime.utcnow()
-    today_start = datetime(now.year, now.month, now.day)
+    now = datetime.now(timezone.utc)
+    today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
     today_end = today_start + timedelta(days=1)
 
     total = db.query(models.Booking).count()

@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.db import models
 from app.services import booking_service
 
@@ -10,7 +10,7 @@ def test_cancellation_rules(db_session):
     db_session.commit()
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(days=2),
+        starts_at=datetime.now(timezone.utc) + timedelta(days=2),
         duration_min=60,
         capacity=2,
         price_single_visit=500,
@@ -24,7 +24,7 @@ def test_cancellation_rules(db_session):
 
     slot_late = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(hours=10),
+        starts_at=datetime.now(timezone.utc) + timedelta(hours=10),
         duration_min=60,
         capacity=2,
         price_single_visit=500,
