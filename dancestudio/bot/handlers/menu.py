@@ -68,6 +68,23 @@ def _format_slot_time(slot: Mapping[str, object]) -> tuple[str, str]:
     return short_label, long_label
 
 
+def _format_reservation_deadline(raw_value: object) -> str:
+    if not isinstance(raw_value, str):
+        return ""
+    value = raw_value.replace("Z", "+00:00") if raw_value.endswith("Z") else raw_value
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    dt_local = dt.astimezone(_timezone)
+    now_local = datetime.now(_timezone)
+    if dt_local.date() == now_local.date():
+        return dt_local.strftime("%H:%M")
+    return dt_local.strftime("%d.%m %H:%M")
+
+
 def _direction_title(direction: Direction) -> str:
     name = direction.get("name", "Направление")
     return texts.direction_schedule_title(name)
@@ -127,17 +144,42 @@ async def my_bookings(callback: CallbackQuery) -> None:
         await callback.answer(texts.API_ERROR, show_alert=True)
         return
 
-    items: list[tuple[str, str]] = []
+    items: list[dict[str, object]] = []
+    pay_rows: list[list[InlineKeyboardButton]] = []
     for booking in bookings:
         slot = booking.get("slot", {})
         short_label, _ = _format_slot_time(slot)
         direction_name = slot.get("direction_name", "") or "Занятие"
         title = f"{short_label} · {direction_name}" if short_label else direction_name
         status = str(booking.get("status", ""))
-        items.append((title, status))
+        entry: dict[str, object] = {"title": title, "status": status}
+        if status == "reserved":
+            entry["note"] = "не оплачено"
+            deadline_label = _format_reservation_deadline(
+                booking.get("reservation_expires_at")
+            )
+            if deadline_label:
+                entry["payment_due"] = deadline_label
+            payment_url = booking.get("payment_url")
+            if isinstance(payment_url, str) and payment_url:
+                button_text = (
+                    f"Оплатить · {short_label}" if short_label else "Оплатить"
+                )
+                pay_rows.append(
+                    [InlineKeyboardButton(text=button_text, url=payment_url)]
+                )
+        items.append(entry)
 
     text = texts.bookings_list(items)
-    await _safe_edit_message(callback.message, text, reply_markup=main_menu_keyboard())
+    keyboard_rows: list[list[InlineKeyboardButton]] = [*pay_rows]
+    keyboard_rows.append(
+        [InlineKeyboardButton(text="Обновить", callback_data="my_bookings")]
+    )
+    keyboard_rows.append(
+        [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
+    )
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+    await _safe_edit_message(callback.message, text, reply_markup=reply_markup)
     await callback.answer()
 
 

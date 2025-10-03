@@ -2,6 +2,7 @@ import importlib
 import sys
 import types
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.config import get_settings
+from app.core.constants import RESERVATION_PAYMENT_TIMEOUT
 from app.db import models
 from app.db.session import Base, get_db
 
@@ -165,6 +167,75 @@ def test_list_bookings_returns_upcoming(bot_api_client):
     data = response.json()
     assert len(data) == 1
     assert data[0]["slot"]["direction_name"] == "Jazz"
+
+
+def test_pending_booking_exposes_payment_link(bot_api_client):
+    client, SessionLocal = bot_api_client
+    db = SessionLocal()
+    direction = models.Direction(name="Salsa")
+    db.add(direction)
+    db.commit()
+
+    slot = models.ClassSlot(
+        direction_id=direction.id,
+        starts_at=datetime.utcnow() + timedelta(hours=2),
+        duration_min=60,
+        capacity=10,
+        price_single_visit=900,
+    )
+    user = models.User(tg_id=1111)
+    db.add_all([slot, user])
+    db.commit()
+
+    booking = models.Booking(
+        user_id=user.id,
+        class_slot_id=slot.id,
+        status=models.BookingStatus.reserved,
+    )
+    db.add(booking)
+    db.commit()
+    db.refresh(booking)
+
+    payment = models.Payment(
+        user_id=user.id,
+        class_slot_id=slot.id,
+        amount=Decimal("900.00"),
+        currency="RUB",
+        provider=models.PaymentProvider.stub,
+        order_id="order-test",
+        status=models.PaymentStatus.pending,
+        purpose=models.PaymentPurpose.single_visit,
+        confirmation_url="http://example.com/pay",
+    )
+    db.add(payment)
+    db.commit()
+    db.close()
+
+    response = client.get(
+        "/api/v1/bot/users/1111/bookings",
+        headers={"X-Bot-Token": "bot-secret"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    booking_payload = data[0]
+    assert booking_payload["needs_payment"] is True
+    assert booking_payload["payment_url"] == "http://example.com/pay"
+    assert booking_payload["reservation_expires_at"] is not None
+
+    # Expire the reservation and ensure it is not returned anymore
+    db = SessionLocal()
+    stored_booking = db.query(models.Booking).one()
+    stored_booking.created_at = datetime.utcnow() - RESERVATION_PAYMENT_TIMEOUT - timedelta(minutes=1)
+    db.commit()
+    db.close()
+
+    response = client.get(
+        "/api/v1/bot/users/1111/bookings",
+        headers={"X-Bot-Token": "bot-secret"},
+    )
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 def test_bot_token_required(bot_api_client):

@@ -55,6 +55,7 @@ class Booking(TypedDict, total=False):
     needs_payment: bool
     payment_status: str | None
     payment_url: str | None
+    reservation_expires_at: str | None
 
 
 _settings = get_settings()
