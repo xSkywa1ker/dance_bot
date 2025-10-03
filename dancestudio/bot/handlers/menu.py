@@ -36,6 +36,8 @@ from dancestudio.bot.services.api_client import Direction
 from dancestudio.bot.utils import texts
 from states.booking import BookingStates
 
+from states.booking import BookingStates
+
 router = Router()
 _settings = get_settings()
 _timezone = ZoneInfo(_settings.timezone)

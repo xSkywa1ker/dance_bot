@@ -11,7 +11,6 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
-
 def _bootstrap_namespace() -> None:
     """Ensure ``dancestudio.bot`` imports work when only the bot folder is present."""
 
@@ -52,6 +51,7 @@ _bootstrap_namespace()
 from dancestudio.bot.config import get_settings
 from dancestudio.bot.handlers import menu
 from dancestudio.bot.middlewares.logging import LoggingMiddleware
+
 
 logging.basicConfig(level=logging.INFO)
 
