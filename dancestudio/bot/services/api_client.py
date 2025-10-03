@@ -58,6 +58,10 @@ class Booking(TypedDict, total=False):
     reservation_expires_at: str | None
 
 
+class StudioAddresses(TypedDict, total=False):
+    addresses: str
+
+
 _settings = get_settings()
 
 
@@ -141,11 +145,19 @@ async def create_subscription_payment(
     return data
 
 
+async def fetch_studio_addresses() -> StudioAddresses:
+    data = await _get("/bot/addresses")
+    if isinstance(data, dict) and isinstance(data.get("addresses"), str):
+        return {"addresses": data["addresses"]}
+    return {"addresses": ""}
+
+
 __all__ = [
     "Product",
     "Direction",
     "Slot",
     "Booking",
+    "StudioAddresses",
     "fetch_products",
     "fetch_directions",
     "fetch_slots",
@@ -153,4 +165,5 @@ __all__ = [
     "create_booking",
     "sync_user",
     "create_subscription_payment",
+    "fetch_studio_addresses",
 ]

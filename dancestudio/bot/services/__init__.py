@@ -6,6 +6,7 @@ from .api_client import (
     create_booking,
     create_subscription_payment,
     sync_user,
+    fetch_studio_addresses,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "create_booking",
     "create_subscription_payment",
     "sync_user",
+    "fetch_studio_addresses",
 ]

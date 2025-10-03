@@ -29,6 +29,8 @@ FULL_NAME_SAVED = "Спасибо! Мы сохранили ваше ФИО."
 FULL_NAME_INVALID = "Пожалуйста, отправьте ФИО текстом."
 PAST_SLOT_ERROR = "Запись на прошедшее занятие недоступна."
 NO_SEATS_ERROR = "Свободных мест не осталось."
+ADDRESSES_TITLE = "Наши адреса:"
+NO_ADDRESSES = "Адреса пока не указаны."
 
 
 def _format_price(value: float | int | None) -> str:
@@ -107,6 +109,12 @@ def booking_payment_required(direction_name: str, starts_at: str, price: str | N
         parts.append(f"Стоимость: {price}")
     parts.append("Перейдите по ссылке ниже, чтобы оплатить занятие.")
     return "\n".join(parts)
+
+
+def studio_addresses(addresses: str | None) -> str:
+    if not addresses or not addresses.strip():
+        return NO_ADDRESSES
+    return f"{ADDRESSES_TITLE}\n{addresses.strip()}"
 
 
 def subscription_payment_details(product_name: str, price: str | None) -> str:

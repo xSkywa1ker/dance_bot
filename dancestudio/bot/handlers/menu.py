@@ -27,6 +27,7 @@ from services import (
     fetch_slots,
     fetch_bookings,
     sync_user,
+    fetch_studio_addresses,
 )
 from services.api_client import Direction
 from states.booking import BookingStates
@@ -123,6 +124,22 @@ async def show_rules(callback: CallbackQuery) -> None:
     await _safe_edit_message(
         callback.message,
         texts.CANCEL_RULES,
+        reply_markup=main_menu_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "addresses")
+async def show_addresses(callback: CallbackQuery) -> None:
+    try:
+        result = await fetch_studio_addresses()
+    except HTTPError:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    text = texts.studio_addresses(result.get("addresses"))
+    await _safe_edit_message(
+        callback.message,
+        text,
         reply_markup=main_menu_keyboard(),
     )
     await callback.answer()

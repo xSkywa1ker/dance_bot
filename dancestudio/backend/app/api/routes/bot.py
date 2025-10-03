@@ -12,7 +12,7 @@ from ...api import deps
 from ...core.constants import RESERVATION_PAYMENT_TIMEOUT
 from ...db import models, schemas
 from ...db.session import get_db
-from ...services import booking_service, payment_service
+from ...services import booking_service, payment_service, settings_service
 
 router = APIRouter(prefix="/bot", tags=["bot"])
 
@@ -129,6 +129,15 @@ def sync_user(
 ) -> schemas.User:
     user = _sync_user(db, payload)
     return schemas.User.model_validate(user)
+
+
+@router.get("/addresses", response_model=schemas.StudioAddresses)
+def get_addresses(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[None, Depends(deps.verify_bot_token)],
+) -> schemas.StudioAddresses:
+    addresses = settings_service.get_addresses(db)
+    return schemas.StudioAddresses(addresses=addresses)
 
 
 @router.get("/users/{tg_id}/bookings", response_model=list[BotBookingResponse])
