@@ -31,6 +31,15 @@ PAST_SLOT_ERROR = "Запись на прошедшее занятие недо�
 NO_SEATS_ERROR = "Свободных мест не осталось."
 ADDRESSES_TITLE = "Наши адреса:"
 NO_ADDRESSES = "Адреса пока не указаны."
+PAYMENT_LINK_UNAVAILABLE_NOTE = "ссылка для оплаты недоступна"
+PAYMENT_LINK_UNAVAILABLE_MESSAGE = (
+    "Ссылка для оплаты сейчас недоступна.\n"
+    "Пожалуйста, свяжитесь с администратором, чтобы завершить оплату."
+)
+PAYMENT_LINK_UNAVAILABLE_ALERT = (
+    "Не удалось сформировать ссылку для оплаты. "
+    "Пожалуйста, свяжитесь с администратором."
+)
 
 
 def _format_price(value: float | int | None) -> str:
@@ -102,12 +111,21 @@ def booking_confirmed(direction_name: str, starts_at: str) -> str:
     )
 
 
-def booking_payment_required(direction_name: str, starts_at: str, price: str | None) -> str:
+def booking_payment_required(
+    direction_name: str,
+    starts_at: str,
+    price: str | None,
+    *,
+    link_available: bool = True,
+) -> str:
     clean_direction = direction_name or "Занятие"
     parts = [BOOKING_PAYMENT_REQUIRED, "", f"«{clean_direction}»", starts_at]
     if price:
         parts.append(f"Стоимость: {price}")
-    parts.append("Перейдите по ссылке ниже, чтобы оплатить занятие.")
+    if link_available:
+        parts.append("Перейдите по ссылке ниже, чтобы оплатить занятие.")
+    else:
+        parts.append(PAYMENT_LINK_UNAVAILABLE_MESSAGE)
     return "\n".join(parts)
 
 
@@ -117,12 +135,17 @@ def studio_addresses(addresses: str | None) -> str:
     return f"{ADDRESSES_TITLE}\n{addresses.strip()}"
 
 
-def subscription_payment_details(product_name: str, price: str | None) -> str:
+def subscription_payment_details(
+    product_name: str, price: str | None, *, link_available: bool = True
+) -> str:
     clean_name = product_name or "Абонемент"
     parts = [SUBSCRIPTION_PAYMENT_REQUIRED, "", f"«{clean_name}»"]
     if price:
         parts.append(f"Стоимость: {price}")
-    parts.append("Перейдите по ссылке ниже, чтобы оплатить.")
+    if link_available:
+        parts.append("Перейдите по ссылке ниже, чтобы оплатить.")
+    else:
+        parts.append(PAYMENT_LINK_UNAVAILABLE_MESSAGE)
     return "\n".join(parts)
 
 
