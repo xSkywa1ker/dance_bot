@@ -12,54 +12,29 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from httpx import HTTPError
 from urllib.parse import urlparse
 
-try:  # pragma: no cover - executed depending on import layout
-    from dancestudio.bot.config import get_settings
-    from dancestudio.bot.keyboards import (
-        directions_keyboard,
-        product_actions_keyboard,
-        products_keyboard,
-        main_menu_keyboard,
-        slots_keyboard,
-        slot_actions_keyboard,
-    )
-    from dancestudio.bot.services import (
-        create_booking,
-        create_subscription_payment,
-        fetch_directions,
-        fetch_products,
-        fetch_slots,
-        fetch_bookings,
-        fetch_subscriptions,
-        sync_user,
-        fetch_studio_addresses,
-    )
-    from dancestudio.bot.services.api_client import Direction
-    from dancestudio.bot.utils import texts
-except ModuleNotFoundError as exc:  # pragma: no cover - fallback for Docker image
-    if exc.name and not exc.name.startswith("dancestudio"):
-        raise
-    from config import get_settings  # type: ignore[no-redef]
-    from keyboards import (  # type: ignore[no-redef]
-        directions_keyboard,
-        product_actions_keyboard,
-        products_keyboard,
-        main_menu_keyboard,
-        slots_keyboard,
-        slot_actions_keyboard,
-    )
-    from services import (  # type: ignore[no-redef]
-        create_booking,
-        create_subscription_payment,
-        fetch_directions,
-        fetch_products,
-        fetch_slots,
-        fetch_bookings,
-        fetch_subscriptions,
-        sync_user,
-        fetch_studio_addresses,
-    )
-    from services.api_client import Direction  # type: ignore[no-redef]
-    from utils import texts  # type: ignore[no-redef]
+from dancestudio.bot.config import get_settings
+from dancestudio.bot.keyboards import (
+    directions_keyboard,
+    product_actions_keyboard,
+    products_keyboard,
+    main_menu_keyboard,
+    slots_keyboard,
+    slot_actions_keyboard,
+)
+from dancestudio.bot.services import (
+    create_booking,
+    create_subscription_payment,
+    fetch_directions,
+    fetch_products,
+    fetch_slots,
+    fetch_bookings,
+    fetch_subscriptions,
+    sync_user,
+    fetch_studio_addresses,
+)
+from dancestudio.bot.services.api_client import Direction
+from dancestudio.bot.utils import texts
+
 from states.booking import BookingStates
 
 router = Router()
