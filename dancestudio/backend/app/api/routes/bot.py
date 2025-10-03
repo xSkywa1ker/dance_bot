@@ -51,6 +51,17 @@ class BotSubscriptionPurchaseRequest(SyncUserRequest):
     product_id: int
 
 
+class BotSubscription(BaseModel):
+    id: int
+    product_id: int
+    product_name: str
+    remaining_classes: int
+    total_classes: int | None = None
+    valid_from: datetime
+    valid_to: datetime
+    status: str
+
+
 class BotPaymentResponse(BaseModel):
     payment_id: int
     status: str
@@ -186,6 +197,48 @@ def list_user_bookings(
                 booking,
                 payment=payment,
                 payment_url=payment_url,
+            )
+        )
+    return results
+
+
+@router.get("/users/{tg_id}/subscriptions", response_model=list[BotSubscription])
+def list_user_subscriptions(
+    tg_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[None, Depends(deps.verify_bot_token)],
+) -> list[BotSubscription]:
+    user = db.query(models.User).filter_by(tg_id=tg_id).first()
+    if not user:
+        return []
+    now = datetime.now(timezone.utc)
+    subscriptions = (
+        db.query(models.Subscription)
+        .options(selectinload(models.Subscription.product))
+        .filter(models.Subscription.user_id == user.id)
+        .filter(models.Subscription.status == models.SubscriptionStatus.active)
+        .filter(models.Subscription.valid_to >= now)
+        .order_by(models.Subscription.valid_to)
+        .all()
+    )
+    results: list[BotSubscription] = []
+    for subscription in subscriptions:
+        product = subscription.product
+        status_value = (
+            subscription.status.value
+            if hasattr(subscription.status, "value")
+            else str(subscription.status)
+        )
+        results.append(
+            BotSubscription(
+                id=subscription.id,
+                product_id=subscription.product_id,
+                product_name=product.name if product else "Абонемент",
+                remaining_classes=subscription.remaining_classes,
+                total_classes=product.classes_count if product else None,
+                valid_from=subscription.valid_from,
+                valid_to=subscription.valid_to,
+                status=status_value,
             )
         )
     return results

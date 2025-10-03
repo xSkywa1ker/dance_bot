@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from ...api import deps
 from ...db.session import get_db
 from ...db import models, schemas
+from ...services import schedule_service
 
 router = APIRouter(prefix="/slots", tags=["slots"])
 
@@ -55,18 +56,22 @@ def update_slot(
     return slot
 
 
-@router.post("/{slot_id}/cancel")
+@router.post("/{slot_id}/cancel", response_model=schemas.ClassSlot)
 def cancel_slot(
     slot_id: int,
     db: Session = Depends(get_db),
-    _: models.AdminUser = Depends(deps.require_roles("admin", "manager")),
+    admin: models.AdminUser = Depends(deps.require_roles("admin", "manager")),
 ):
     slot = db.get(models.ClassSlot, slot_id)
     if not slot:
         raise HTTPException(status_code=404, detail="Slot not found")
-    slot.status = models.SlotStatus.canceled
-    db.commit()
-    return {"status": "canceled"}
+    slot = schedule_service.cancel_slot(
+        db,
+        slot,
+        actor=admin.login,
+        actor_id=admin.id,
+    )
+    return slot
 
 
 @router.delete("/{slot_id}")

@@ -149,6 +149,16 @@ const SchedulePage = () => {
     }
   })
 
+  const cancelMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiClient.post<Slot>(`/slots/${id}/cancel`)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['slots'] })
+    }
+  })
+
   const onSubmit = (values: SlotFormValues) => {
     const payload: SlotFormValues = {
       ...values,
@@ -164,6 +174,15 @@ const SchedulePage = () => {
   const handleDelete = (slot: Slot) => {
     if (window.confirm('Удалить занятие из расписания?')) {
       deleteMutation.mutate(slot.id)
+    }
+  }
+
+  const handleCancel = (slot: Slot) => {
+    if (slot.status === 'canceled') {
+      return
+    }
+    if (window.confirm('Отменить это занятие?')) {
+      cancelMutation.mutate(slot.id)
     }
   }
 
@@ -215,11 +234,19 @@ const SchedulePage = () => {
       field: 'actions',
       headerName: 'Действия',
       sortable: false,
-      width: 240,
+      width: 340,
       renderCell: (params: GridRenderCellParams<Slot>) => (
         <Stack direction="row" spacing={1}>
           <Button size="small" onClick={() => openEditDialog(params.row)}>
             Изменить
+          </Button>
+          <Button
+            size="small"
+            color="warning"
+            disabled={params.row.status === 'canceled' || cancelMutation.isPending}
+            onClick={() => handleCancel(params.row)}
+          >
+            Отменить
           </Button>
           <Button size="small" color="error" onClick={() => handleDelete(params.row)}>
             Удалить
