@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import importlib
 from pathlib import Path
 import sys
@@ -83,7 +83,7 @@ def test_create_booking_capacity_conflict(api_client, monkeypatch):
 
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(days=2),
+        starts_at=datetime.now(timezone.utc) + timedelta(days=2),
         duration_min=60,
         capacity=1,
         price_single_visit=500,
@@ -118,7 +118,7 @@ def test_cancel_booking_invalid_status_returns_bad_request(api_client):
 
     slot = models.ClassSlot(
         direction_id=direction.id,
-        starts_at=datetime.utcnow() + timedelta(days=2),
+        starts_at=datetime.now(timezone.utc) + timedelta(days=2),
         duration_min=60,
         capacity=2,
         price_single_visit=500,

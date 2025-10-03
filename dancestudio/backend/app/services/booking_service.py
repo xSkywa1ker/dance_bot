@@ -54,6 +54,7 @@ def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models
         ).scalar_one_or_none()
         if existing and existing.status in [BookingStatus.reserved, BookingStatus.confirmed]:
             raise BookingError("Already booked")
+        now = _utc_now()
         subscription = (
             db.execute(
                 select(models.Subscription)
@@ -61,8 +62,8 @@ def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models
                     models.Subscription.user_id == user.id,
                     models.Subscription.status == SubscriptionStatus.active,
                     models.Subscription.remaining_classes > 0,
-                    models.Subscription.valid_from <= datetime.utcnow(),
-                    models.Subscription.valid_to >= datetime.utcnow(),
+                    models.Subscription.valid_from <= now,
+                    models.Subscription.valid_to >= now,
                 )
                 .order_by(models.Subscription.valid_to)
             ).scalars().first()
@@ -91,8 +92,11 @@ def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models
 
 def cancel_booking(db: Session, booking: models.Booking, actor: str) -> models.Booking:
     slot = booking.slot
-    now = datetime.utcnow()
-    if slot.starts_at - now < timedelta(hours=24):
+    now = _utc_now()
+    slot_starts_at = slot.starts_at
+    if slot_starts_at.tzinfo is None:
+        slot_starts_at = slot_starts_at.replace(tzinfo=timezone.utc)
+    if slot_starts_at - now < timedelta(hours=24):
         booking.status = BookingStatus.late_cancel
         db.commit()
         return booking
