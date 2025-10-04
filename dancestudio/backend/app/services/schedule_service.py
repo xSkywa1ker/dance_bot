@@ -9,8 +9,12 @@ from .subscription_service import grant_class_credit
 
 
 def get_available_slots(db: Session, direction_id: int | None = None) -> list[models.ClassSlot]:
-    stmt = select(models.ClassSlot).where(models.ClassSlot.starts_at >= datetime.utcnow())
-    if direction_id:
+    stmt = (
+        select(models.ClassSlot)
+        .where(models.ClassSlot.starts_at >= datetime.utcnow())
+        .where(models.ClassSlot.direction_id.isnot(None))
+    )
+    if direction_id is not None:
         stmt = stmt.where(models.ClassSlot.direction_id == direction_id)
     return list(db.execute(stmt).scalars().all())
 
