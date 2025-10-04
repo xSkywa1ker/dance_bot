@@ -64,6 +64,7 @@ const SchedulePage = () => {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingSlot, setEditingSlot] = useState<Slot | null>(null)
   const [selectedDate, setSelectedDate] = useState<Dayjs | null>(dayjs())
+  const [cancelingSlotId, setCancelingSlotId] = useState<number | null>(null)
 
   const directionsQuery = useQuery({
     queryKey: ['directions'],
@@ -160,7 +161,7 @@ const SchedulePage = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['slots'] })
-    }
+    },
   })
 
   const cancelMutation = useMutation({
@@ -170,6 +171,9 @@ const SchedulePage = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['slots'] })
+    },
+    onSettled: () => {
+      setCancelingSlotId(null)
     }
   })
 
@@ -196,6 +200,7 @@ const SchedulePage = () => {
       return
     }
     if (window.confirm('Отменить это занятие?')) {
+      setCancelingSlotId(slot.id)
       cancelMutation.mutate(slot.id)
     }
   }
@@ -260,7 +265,9 @@ const SchedulePage = () => {
             disabled={params.row.status === 'canceled' || cancelMutation.isPending}
             onClick={() => handleCancel(params.row)}
           >
-            Отменить
+            {cancelMutation.isPending && cancelingSlotId === params.row.id
+              ? 'Отмена...'
+              : 'Отменить'}
           </Button>
           <Button size="small" color="error" onClick={() => handleDelete(params.row)}>
             Удалить

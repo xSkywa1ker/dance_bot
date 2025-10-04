@@ -5,6 +5,7 @@ from . import (
     google_sheets,
     settings_service,
     subscription_service,
+    notification_service,
 )
 __all__ = [
     "booking_service",
@@ -13,4 +14,5 @@ __all__ = [
     "google_sheets",
     "settings_service",
     "subscription_service",
+    "notification_service",
 ]

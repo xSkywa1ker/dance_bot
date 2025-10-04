@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..core.constants import SLOT_CANCELED_REASON
 from ..db import models
+from . import notification_service
 from .subscription_service import grant_class_credit
 
 
@@ -44,7 +45,8 @@ def cancel_slot(
         .options(
             selectinload(models.Booking.slot).selectinload(
                 models.ClassSlot.direction
-            )
+            ),
+            selectinload(models.Booking.user),
         )
         .filter(models.Booking.class_slot_id == slot.id)
         .filter(
@@ -54,6 +56,8 @@ def cancel_slot(
         )
         .all()
     )
+
+    notifications: list[notification_service.SlotCancellationNotification] = []
 
     for booking in bookings:
         grant_class_credit(
@@ -81,12 +85,20 @@ def cancel_slot(
         direction_name = None
         if booking.slot and booking.slot.direction:
             direction_name = booking.slot.direction.name
+
         message_text = None
         if booking.slot:
-            message_text = (
-                f"Занятие «{direction_name or 'Занятие'}» "
-                f"{booking.slot.starts_at.isoformat()} отменено. "
-                "Мы вернули вам одно занятие."
+            message_text = notification_service.build_slot_cancellation_message(
+                direction_name=direction_name,
+                starts_at=booking.slot.starts_at,
+            )
+
+        if booking.user and message_text:
+            notifications.append(
+                notification_service.SlotCancellationNotification(
+                    tg_id=booking.user.tg_id,
+                    message=message_text,
+                )
             )
 
         db.add(
@@ -108,4 +120,6 @@ def cancel_slot(
 
     db.commit()
     db.refresh(slot)
+
+    notification_service.notify_slot_cancellation(notifications)
     return slot
