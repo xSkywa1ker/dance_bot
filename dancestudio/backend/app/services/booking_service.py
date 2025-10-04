@@ -125,11 +125,13 @@ def cancel_booking(db: Session, booking: models.Booking, actor: str) -> models.B
         return booking
     if booking.status not in [BookingStatus.confirmed, BookingStatus.reserved]:
         raise BookingError("Cannot cancel")
-    grant_class_credit(
-        db,
-        user_id=booking.user_id,
-        slot_direction_id=slot.direction_id,
-    )
+
+    if booking.status == BookingStatus.confirmed:
+        grant_class_credit(
+            db,
+            user_id=booking.user_id,
+            slot_direction_id=slot.direction_id,
+        )
     booking.status = BookingStatus.canceled
     booking.canceled_at = now
     booking.canceled_by = actor
