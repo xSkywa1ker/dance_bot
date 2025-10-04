@@ -1,11 +1,14 @@
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
+
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
 from ..db import models
-from .subscription_service import grant_class_credit
+from ..db.models.booking import BookingSource, BookingStatus
 from ..db.models.class_slot import SlotStatus
-from ..db.models.booking import BookingStatus, BookingSource
 from ..db.models.subscription import SubscriptionStatus
+from .subscription_service import grant_class_credit
 
 
 class BookingError(Exception):
@@ -29,65 +32,77 @@ def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models
     if not _slot_starts_in_future(slot):
         raise BookingError("Slot start time is in the past")
     transaction_ctx = db.begin_nested() if db.in_transaction() else db.begin()
-    with transaction_ctx:
-        locked_slot = (
-            db.execute(select(models.ClassSlot).where(models.ClassSlot.id == slot.id).with_for_update())
-            .scalar_one()
-        )
-        if not _slot_starts_in_future(locked_slot):
-            raise BookingError("Slot start time is in the past")
-        active_bookings = db.scalar(
-            select(func.count(models.Booking.id)).where(
-                models.Booking.class_slot_id == locked_slot.id,
-                models.Booking.status.in_([
-                    BookingStatus.reserved,
-                    BookingStatus.confirmed,
-                ]),
-            )
-        )
-        if active_bookings >= locked_slot.capacity:
-            raise BookingError("No free seats")
-        existing = db.execute(
-            select(models.Booking).where(
-                models.Booking.user_id == user.id,
-                models.Booking.class_slot_id == locked_slot.id,
-            )
-        ).scalar_one_or_none()
-        if existing and existing.status in [BookingStatus.reserved, BookingStatus.confirmed]:
-            raise BookingError("Already booked")
-        now = _utc_now()
-        subscription = (
-            db.execute(
-                select(models.Subscription)
-                .where(
-                    models.Subscription.user_id == user.id,
-                    models.Subscription.status == SubscriptionStatus.active,
-                    models.Subscription.remaining_classes > 0,
-                    models.Subscription.valid_from <= now,
-                    models.Subscription.valid_to >= now,
+    try:
+        with transaction_ctx:
+            locked_slot = (
+                db.execute(
+                    select(models.ClassSlot)
+                    .where(models.ClassSlot.id == slot.id)
+                    .with_for_update()
                 )
-                .order_by(models.Subscription.valid_to)
-            ).scalars().first()
-        )
-        if subscription and (
-            not subscription.product.direction_limit_id
-            or subscription.product.direction_limit_id == locked_slot.direction_id
-        ):
-            subscription.remaining_classes -= 1
-            booking = models.Booking(
-                user_id=user.id,
-                class_slot_id=locked_slot.id,
-                status=BookingStatus.confirmed,
-                source=BookingSource.bot,
+                .scalar_one()
             )
-        else:
-            booking = models.Booking(
-                user_id=user.id,
-                class_slot_id=locked_slot.id,
-                status=BookingStatus.reserved,
-                source=BookingSource.bot,
+            if not _slot_starts_in_future(locked_slot):
+                raise BookingError("Slot start time is in the past")
+            active_bookings = db.scalar(
+                select(func.count(models.Booking.id)).where(
+                    models.Booking.class_slot_id == locked_slot.id,
+                    models.Booking.status.in_([
+                        BookingStatus.reserved,
+                        BookingStatus.confirmed,
+                    ]),
+                )
             )
-        db.add(booking)
+            if active_bookings >= locked_slot.capacity:
+                raise BookingError("No free seats")
+            existing = db.execute(
+                select(models.Booking).where(
+                    models.Booking.user_id == user.id,
+                    models.Booking.class_slot_id == locked_slot.id,
+                )
+            ).scalar_one_or_none()
+            if existing and existing.status in [BookingStatus.reserved, BookingStatus.confirmed]:
+                raise BookingError("Already booked")
+            now = _utc_now()
+            subscription = (
+                db.execute(
+                    select(models.Subscription)
+                    .where(
+                        models.Subscription.user_id == user.id,
+                        models.Subscription.status == SubscriptionStatus.active,
+                        models.Subscription.remaining_classes > 0,
+                        models.Subscription.valid_from <= now,
+                        models.Subscription.valid_to >= now,
+                    )
+                    .order_by(models.Subscription.valid_to)
+                )
+                .scalars()
+                .first()
+            )
+            if subscription and (
+                not subscription.product.direction_limit_id
+                or subscription.product.direction_limit_id == locked_slot.direction_id
+            ):
+                subscription.remaining_classes -= 1
+                booking = models.Booking(
+                    user_id=user.id,
+                    class_slot_id=locked_slot.id,
+                    status=BookingStatus.confirmed,
+                    source=BookingSource.bot,
+                )
+            else:
+                booking = models.Booking(
+                    user_id=user.id,
+                    class_slot_id=locked_slot.id,
+                    status=BookingStatus.reserved,
+                    source=BookingSource.bot,
+                )
+            db.add(booking)
+    except IntegrityError as exc:
+        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", "")
+        if constraint == "uq_booking_user_slot":
+            raise BookingError("Already booked") from exc
+        raise
     return booking
 
 

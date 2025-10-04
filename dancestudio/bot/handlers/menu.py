@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 from datetime import datetime
+from json import JSONDecodeError
 from typing import Mapping
 from zoneinfo import ZoneInfo
 
@@ -591,9 +592,16 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
         booking = await create_booking(tg_id=user.id, slot_id=slot_id)
     except HTTPError as exc:
         if exc.response is not None:
-            detail = exc.response.json()
-            detail_text = detail.get("detail") if isinstance(detail, dict) else None
             status_code = exc.response.status_code
+            detail_text: str | None = None
+            try:
+                detail = exc.response.json()
+            except (ValueError, JSONDecodeError):
+                detail = None
+            if isinstance(detail, dict):
+                detail_text = detail.get("detail")
+            elif isinstance(detail, str):
+                detail_text = detail
             if status_code == 409 and detail_text == "Already booked":
                 await callback.answer(texts.ALREADY_BOOKED, show_alert=True)
             elif status_code == 409 and detail_text == "Slot start time is in the past":
