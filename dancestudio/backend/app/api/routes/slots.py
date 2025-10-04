@@ -43,13 +43,30 @@ def list_slots(
         )
     else:
         active_counts = {}
+    serialized_slots: list[schemas.ClassSlot] = []
     for slot in slots:
         booked = int(active_counts.get(slot.id, 0))
         capacity = int(slot.capacity or 0)
         available = max(capacity - booked, 0) if capacity else 0
-        setattr(slot, "booked_seats", booked)
-        setattr(slot, "available_seats", available)
-    return slots
+
+        serialized_slots.append(
+            schemas.ClassSlot.model_validate(
+                {
+                    "id": slot.id,
+                    "direction_id": slot.direction_id,
+                    "starts_at": slot.starts_at,
+                    "duration_min": slot.duration_min,
+                    "capacity": slot.capacity,
+                    "price_single_visit": slot.price_single_visit,
+                    "allow_subscription": slot.allow_subscription,
+                    "status": slot.status.value if hasattr(slot.status, "value") else slot.status,
+                    "booked_seats": booked,
+                    "available_seats": available,
+                }
+            )
+        )
+
+    return serialized_slots
 
 
 @router.post("", response_model=schemas.ClassSlot)
