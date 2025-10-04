@@ -2,10 +2,14 @@ from datetime import datetime, timedelta, timezone
 
 from app.core.constants import SLOT_CANCELED_REASON
 from app.db import models
+from zoneinfo import ZoneInfo
+
 from app.services import booking_service, schedule_service
 
 
-def test_cancel_slot_refunds_subscription_and_creates_notifications(db_session):
+def test_cancel_slot_refunds_subscription_and_creates_notifications(
+    db_session, monkeypatch
+):
     direction = models.Direction(name="Ballet")
     db_session.add(direction)
     db_session.commit()
@@ -60,6 +64,17 @@ def test_cancel_slot_refunds_subscription_and_creates_notifications(db_session):
     db_session.add_all([reserved_booking, payment])
     db_session.commit()
 
+    sent_notifications = []
+
+    def fake_notify(notifications):
+        sent_notifications.extend(notifications)
+
+    monkeypatch.setattr(
+        schedule_service.notification_service,
+        "notify_slot_cancellation",
+        fake_notify,
+    )
+
     result = schedule_service.cancel_slot(
         db_session,
         slot,
@@ -79,6 +94,15 @@ def test_cancel_slot_refunds_subscription_and_creates_notifications(db_session):
     assert reserved_booking.status == models.BookingStatus.canceled
     assert active_subscription.remaining_classes == 5
     assert payment.status == models.PaymentStatus.canceled
+
+    assert len(sent_notifications) == 2
+    assert {
+        notification.tg_id for notification in sent_notifications
+    } == {user_with_subscription.tg_id, another_user.tg_id}
+    local_dt = slot.starts_at.astimezone(ZoneInfo("Europe/Moscow")).strftime(
+        "%d.%m.%Y %H:%M"
+    )
+    assert all(local_dt in notification.message for notification in sent_notifications)
 
     compensation = (
         db_session.query(models.Subscription)
