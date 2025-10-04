@@ -17,12 +17,14 @@ def list_slots(
     direction_id: int | None = None,
     db: Session = Depends(get_db),
 ):
-    query = db.query(models.ClassSlot)
+    query = db.query(models.ClassSlot).filter(
+        models.ClassSlot.direction_id.isnot(None)
+    )
     if from_dt:
         query = query.filter(models.ClassSlot.starts_at >= from_dt)
     if to_dt:
         query = query.filter(models.ClassSlot.starts_at <= to_dt)
-    if direction_id:
+    if direction_id is not None:
         query = query.filter(models.ClassSlot.direction_id == direction_id)
     slots = query.order_by(models.ClassSlot.starts_at).all()
     slot_ids = [slot.id for slot in slots]
