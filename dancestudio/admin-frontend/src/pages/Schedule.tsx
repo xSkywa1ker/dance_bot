@@ -17,7 +17,10 @@ import {
   Stack
 } from '@mui/material'
 import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid'
-import dayjs from 'dayjs'
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
+import dayjs, { type Dayjs } from 'dayjs'
 import { Controller, useForm } from 'react-hook-form'
 
 interface Direction {
@@ -60,6 +63,7 @@ const SchedulePage = () => {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingSlot, setEditingSlot] = useState<Slot | null>(null)
+  const [selectedDate, setSelectedDate] = useState<Dayjs | null>(dayjs())
 
   const directionsQuery = useQuery({
     queryKey: ['directions'],
@@ -72,9 +76,14 @@ const SchedulePage = () => {
   })
 
   const slotsQuery = useQuery({
-    queryKey: ['slots'],
+    queryKey: ['slots', selectedDate ? selectedDate.format('YYYY-MM-DD') : 'all'],
     queryFn: async () => {
-      const response = await apiClient.get<Slot[]>('/slots')
+      const params: Record<string, string> = {}
+      if (selectedDate) {
+        params.from_dt = selectedDate.startOf('day').toISOString()
+        params.to_dt = selectedDate.endOf('day').toISOString()
+      }
+      const response = await apiClient.get<Slot[]>('/slots', { params })
       return response.data
     }
   })
@@ -89,9 +98,14 @@ const SchedulePage = () => {
     }
     setEditingSlot(null)
     const firstDirection = directionsQuery.data[0]
+    const referenceTime = dayjs().startOf('hour')
+    const defaultStart = selectedDate
+      ? selectedDate.set('hour', referenceTime.hour()).set('minute', referenceTime.minute())
+      : referenceTime
     reset({
       ...slotDefaultValues,
-      direction_id: firstDirection.id
+      direction_id: firstDirection.id,
+      starts_at: defaultStart.format('YYYY-MM-DDTHH:mm')
     })
     setDialogOpen(true)
   }
@@ -272,116 +286,159 @@ const SchedulePage = () => {
   const hasDirections = directionOptions.length > 0
 
   return (
-    <>
-      <Box display="flex" justifyContent="flex-end" mb={2}>
-        <Button variant="contained" onClick={openCreateDialog} disabled={!hasDirections}>
-          Добавить занятие
-        </Button>
-      </Box>
-      {!hasDirections ? (
-        <Alert severity="info">Добавьте направление, чтобы создать расписание.</Alert>
-      ) : (
-        <Box height={500}>
-          <DataGrid rows={slotsQuery.data ?? []} columns={columns} disableRowSelectionOnClick />
-        </Box>
-      )}
-      <Dialog open={dialogOpen} onClose={closeDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>{editingSlot ? 'Редактирование занятия' : 'Новое занятие'}</DialogTitle>
-        <DialogContent>
-          <Box component="form" id="slot-form" onSubmit={handleSubmit(onSubmit)}>
-            <TextField
-              select
-              label="Направление"
-              fullWidth
-              margin="normal"
-              {...register('direction_id', {
-                required: 'Выберите направление',
-                valueAsNumber: true,
-                validate: (value) => value > 0 || 'Выберите направление'
-              })}
-              error={Boolean(formState.errors.direction_id)}
-              helperText={formState.errors.direction_id?.message}
+    <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <Box>
+        <Stack
+          direction={{ xs: 'column', lg: 'row' }}
+          spacing={2}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', lg: 'center' }}
+          mb={2}
+        >
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1}
+            alignItems={{ xs: 'stretch', sm: 'center' }}
+            sx={{ flexWrap: 'wrap' }}
+          >
+            <DatePicker
+              label="Дата занятий"
+              value={selectedDate}
+              onChange={(date) => setSelectedDate(date)}
+              format="DD.MM.YYYY"
+              slotProps={{
+                textField: {
+                  size: 'small',
+                  sx: { minWidth: 220 }
+                }
+              }}
+            />
+            <Button variant="outlined" size="small" onClick={() => setSelectedDate(dayjs())}>
+              Сегодня
+            </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setSelectedDate(null)}
+              disabled={!selectedDate}
             >
-              {directionOptions.map((direction) => (
-                <MenuItem key={direction.id} value={direction.id}>
-                  {direction.name}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              label="Дата и время начала"
-              type="datetime-local"
-              fullWidth
-              margin="normal"
-              InputLabelProps={{ shrink: true }}
-              {...register('starts_at', { required: 'Укажите дату и время' })}
-              error={Boolean(formState.errors.starts_at)}
-              helperText={formState.errors.starts_at?.message}
-            />
-            <TextField
-              label="Длительность (мин)"
-              type="number"
-              fullWidth
-              margin="normal"
-              {...register('duration_min', { required: 'Укажите длительность', valueAsNumber: true })}
-              error={Boolean(formState.errors.duration_min)}
-              helperText={formState.errors.duration_min?.message}
-            />
-            <TextField
-              label="Количество мест"
-              type="number"
-              fullWidth
-              margin="normal"
-              {...register('capacity', { required: 'Укажите количество мест', valueAsNumber: true })}
-              error={Boolean(formState.errors.capacity)}
-              helperText={formState.errors.capacity?.message}
-            />
-            <TextField
-              label="Стоимость разового посещения"
-              type="number"
-              fullWidth
-              margin="normal"
-              inputProps={{ step: '0.01' }}
-              {...register('price_single_visit', { required: 'Укажите стоимость', valueAsNumber: true })}
-              error={Boolean(formState.errors.price_single_visit)}
-              helperText={formState.errors.price_single_visit?.message}
-            />
-            <Controller
-              name="allow_subscription"
-              control={control}
-              render={({ field }) => (
-                <FormControlLabel
-                  control={<Switch checked={field.value} onChange={(_, checked) => field.onChange(checked)} />}
-                  label="Доступно по абонементу"
-                />
-              )}
-            />
-            <Controller
-              name="status"
-              control={control}
-              render={({ field }) => (
-                <TextField select label="Статус" fullWidth margin="normal" {...field}>
-                  <MenuItem value="scheduled">Запланировано</MenuItem>
-                  <MenuItem value="canceled">Отменено</MenuItem>
-                  <MenuItem value="completed">Проведено</MenuItem>
-                </TextField>
-              )}
+              Показать все
+            </Button>
+          </Stack>
+          <Button variant="contained" onClick={openCreateDialog} disabled={!hasDirections}>
+            Добавить занятие
+          </Button>
+        </Stack>
+        {!hasDirections ? (
+          <Alert severity="info">Добавьте направление, чтобы создать расписание.</Alert>
+        ) : (
+          <Box height={500}>
+            <DataGrid
+              rows={slotsQuery.data ?? []}
+              columns={columns}
+              disableRowSelectionOnClick
+              loading={slotsQuery.isFetching}
             />
           </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeDialog}>Отмена</Button>
-          <Button
-            type="submit"
-            form="slot-form"
-            variant="contained"
-            disabled={createMutation.isPending || updateMutation.isPending}
-          >
-            {editingSlot ? 'Сохранить' : 'Добавить'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </>
+        )}
+        <Dialog open={dialogOpen} onClose={closeDialog} maxWidth="sm" fullWidth>
+          <DialogTitle>{editingSlot ? 'Редактирование занятия' : 'Новое занятие'}</DialogTitle>
+          <DialogContent>
+            <Box component="form" id="slot-form" onSubmit={handleSubmit(onSubmit)}>
+              <TextField
+                select
+                label="Направление"
+                fullWidth
+                margin="normal"
+                {...register('direction_id', {
+                  required: 'Выберите направление',
+                  valueAsNumber: true,
+                  validate: (value) => value > 0 || 'Выберите направление'
+                })}
+                error={Boolean(formState.errors.direction_id)}
+                helperText={formState.errors.direction_id?.message}
+              >
+                {directionOptions.map((direction) => (
+                  <MenuItem key={direction.id} value={direction.id}>
+                    {direction.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Дата и время начала"
+                type="datetime-local"
+                fullWidth
+                margin="normal"
+                InputLabelProps={{ shrink: true }}
+                {...register('starts_at', { required: 'Укажите дату и время' })}
+                error={Boolean(formState.errors.starts_at)}
+                helperText={formState.errors.starts_at?.message}
+              />
+              <TextField
+                label="Длительность (мин)"
+                type="number"
+                fullWidth
+                margin="normal"
+                {...register('duration_min', { required: 'Укажите длительность', valueAsNumber: true })}
+                error={Boolean(formState.errors.duration_min)}
+                helperText={formState.errors.duration_min?.message}
+              />
+              <TextField
+                label="Количество мест"
+                type="number"
+                fullWidth
+                margin="normal"
+                {...register('capacity', { required: 'Укажите количество мест', valueAsNumber: true })}
+                error={Boolean(formState.errors.capacity)}
+                helperText={formState.errors.capacity?.message}
+              />
+              <TextField
+                label="Стоимость разового посещения"
+                type="number"
+                fullWidth
+                margin="normal"
+                inputProps={{ step: '0.01' }}
+                {...register('price_single_visit', { required: 'Укажите стоимость', valueAsNumber: true })}
+                error={Boolean(formState.errors.price_single_visit)}
+                helperText={formState.errors.price_single_visit?.message}
+              />
+              <Controller
+                name="allow_subscription"
+                control={control}
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={<Switch checked={field.value} onChange={(_, checked) => field.onChange(checked)} />}
+                    label="Доступно по абонементу"
+                  />
+                )}
+              />
+              <Controller
+                name="status"
+                control={control}
+                render={({ field }) => (
+                  <TextField select label="Статус" fullWidth margin="normal" {...field}>
+                    <MenuItem value="scheduled">Запланировано</MenuItem>
+                    <MenuItem value="canceled">Отменено</MenuItem>
+                    <MenuItem value="completed">Проведено</MenuItem>
+                  </TextField>
+                )}
+              />
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeDialog}>Отмена</Button>
+            <Button
+              type="submit"
+              form="slot-form"
+              variant="contained"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {editingSlot ? 'Сохранить' : 'Добавить'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </LocalizationProvider>
   )
 }
 
