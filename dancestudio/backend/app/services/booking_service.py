@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -78,22 +78,24 @@ def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models
             subscription = (
                 db.execute(
                     select(models.Subscription)
+                    .join(models.Product)
                     .where(
                         models.Subscription.user_id == user.id,
                         models.Subscription.status == SubscriptionStatus.active,
                         models.Subscription.remaining_classes > 0,
                         models.Subscription.valid_from <= now,
                         models.Subscription.valid_to >= now,
+                        or_(
+                            models.Product.direction_limit_id.is_(None),
+                            models.Product.direction_limit_id == locked_slot.direction_id,
+                        ),
                     )
                     .order_by(models.Subscription.valid_to)
                 )
                 .scalars()
                 .first()
             )
-            if subscription and (
-                not subscription.product.direction_limit_id
-                or subscription.product.direction_limit_id == locked_slot.direction_id
-            ):
+            if locked_slot.allow_subscription and subscription:
                 subscription.remaining_classes -= 1
                 booking.status = BookingStatus.confirmed
             else:
