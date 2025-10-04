@@ -47,6 +47,10 @@ class BotBookingRequest(SyncUserRequest):
     slot_id: int
 
 
+class BotBookingCancelRequest(SyncUserRequest):
+    pass
+
+
 class BotSubscriptionPurchaseRequest(SyncUserRequest):
     product_id: int
 
@@ -280,6 +284,24 @@ def create_booking(
         db.commit()
     db.refresh(booking)
     return _serialize_booking(booking, payment=payment, payment_url=payment_url)
+
+
+@router.post("/bookings/{booking_id}/cancel", response_model=BotBookingResponse)
+def cancel_booking(
+    booking_id: int,
+    payload: BotBookingCancelRequest,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[None, Depends(deps.verify_bot_token)],
+) -> BotBookingResponse:
+    user = db.query(models.User).filter_by(tg_id=payload.tg_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    booking = db.get(models.Booking, booking_id)
+    if not booking or booking.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    booking = booking_service.cancel_booking(db, booking, actor=f"bot:{user.tg_id}")
+    payment = _latest_payment(db, booking)
+    return _serialize_booking(booking, payment=payment)
 
 
 @router.post("/payments/subscription", response_model=BotPaymentResponse)

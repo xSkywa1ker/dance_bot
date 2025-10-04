@@ -303,6 +303,102 @@ def test_booking_consumes_subscription_when_available(bot_api_client):
     db.close()
 
 
+def test_bot_cancellation_returns_credit(bot_api_client):
+    client, SessionLocal = bot_api_client
+    db = SessionLocal()
+    direction = models.Direction(name="Hip-Hop")
+    db.add(direction)
+    db.commit()
+
+    user = models.User(tg_id=4444)
+    db.add(user)
+    db.commit()
+
+    slot = models.ClassSlot(
+        direction_id=direction.id,
+        starts_at=datetime.now(timezone.utc) + timedelta(days=2),
+        duration_min=60,
+        capacity=5,
+        price_single_visit=Decimal("800.00"),
+    )
+    db.add(slot)
+    db.commit()
+    slot_id = slot.id
+    db.close()
+
+    response = client.post(
+        "/api/v1/bot/bookings",
+        json={"tg_id": 4444, "slot_id": slot_id},
+        headers={"X-Bot-Token": "bot-secret"},
+    )
+    assert response.status_code == 200
+    booking_id = response.json()["id"]
+
+    response = client.post(
+        f"/api/v1/bot/bookings/{booking_id}/cancel",
+        json={"tg_id": 4444},
+        headers={"X-Bot-Token": "bot-secret"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "canceled"
+
+    db = SessionLocal()
+    subscription = (
+        db.query(models.Subscription)
+        .filter(models.Subscription.user_id == db.query(models.User).filter_by(tg_id=4444).one().id)
+        .one()
+    )
+    assert subscription.remaining_classes == 1
+    db.close()
+
+
+def test_bot_cancellation_respects_deadline(bot_api_client):
+    client, SessionLocal = bot_api_client
+    db = SessionLocal()
+    direction = models.Direction(name="Stretching")
+    db.add(direction)
+    db.commit()
+
+    user = models.User(tg_id=5555)
+    db.add(user)
+    db.commit()
+
+    slot = models.ClassSlot(
+        direction_id=direction.id,
+        starts_at=datetime.now(timezone.utc) + timedelta(hours=6),
+        duration_min=60,
+        capacity=5,
+        price_single_visit=Decimal("700.00"),
+    )
+    db.add(slot)
+    db.commit()
+    slot_id = slot.id
+    db.close()
+
+    response = client.post(
+        "/api/v1/bot/bookings",
+        json={"tg_id": 5555, "slot_id": slot_id},
+        headers={"X-Bot-Token": "bot-secret"},
+    )
+    assert response.status_code == 200
+    booking_id = response.json()["id"]
+
+    response = client.post(
+        f"/api/v1/bot/bookings/{booking_id}/cancel",
+        json={"tg_id": 5555},
+        headers={"X-Bot-Token": "bot-secret"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "late_cancel"
+
+    db = SessionLocal()
+    subscriptions = db.query(models.Subscription).filter_by(user_id=db.query(models.User).filter_by(tg_id=5555).one().id).all()
+    assert subscriptions == []
+    db.close()
+
+
 def test_bot_token_required(bot_api_client):
     client, _ = bot_api_client
     response = client.post(

@@ -162,6 +162,12 @@ async def create_booking(*, tg_id: int, slot_id: int, full_name: str | None = No
     return data
 
 
+async def cancel_booking(*, tg_id: int, booking_id: int) -> Booking:
+    payload: dict[str, Any] = {"tg_id": tg_id}
+    data = await _post(f"/bot/bookings/{booking_id}/cancel", payload)
+    return data
+
+
 async def create_subscription_payment(
     *, tg_id: int, product_id: int, full_name: str | None = None, phone: str | None = None
 ) -> dict[str, Any]:
@@ -194,6 +200,7 @@ __all__ = [
     "fetch_bookings",
     "fetch_subscriptions",
     "create_booking",
+    "cancel_booking",
     "sync_user",
     "create_subscription_payment",
     "fetch_studio_addresses",

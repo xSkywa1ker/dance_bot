@@ -80,6 +80,15 @@ def test_cancel_slot_refunds_subscription_and_creates_notifications(db_session):
     assert active_subscription.remaining_classes == 5
     assert payment.status == models.PaymentStatus.canceled
 
+    compensation = (
+        db_session.query(models.Subscription)
+        .filter(models.Subscription.user_id == another_user.id)
+        .order_by(models.Subscription.id.desc())
+        .first()
+    )
+    assert compensation is not None
+    assert compensation.remaining_classes == 1
+
     logs = (
         db_session.query(models.AuditLog)
         .filter(models.AuditLog.action == "slot_canceled_notification")
@@ -91,3 +100,4 @@ def test_cancel_slot_refunds_subscription_and_creates_notifications(db_session):
         user_with_subscription.id,
         another_user.id,
     }
+    assert all(log.payload.get("message") for log in logs)

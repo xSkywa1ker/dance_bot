@@ -23,24 +23,36 @@ def slots_keyboard(direction_id: int, slots: Iterable[SlotButton]) -> InlineKeyb
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def slot_actions_keyboard(direction_id: int, slot_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def slot_actions_keyboard(
+    direction_id: int, slot_id: int, *, booking_id: int | None = None
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text="Записаться",
+                callback_data=f"book_slot:{direction_id}:{slot_id}",
+            )
+        ]
+    ]
+    if booking_id is not None:
+        rows.append(
             [
                 InlineKeyboardButton(
-                    text="Записаться",
-                    callback_data=f"book_slot:{direction_id}:{slot_id}",
+                    text="Отменить запись",
+                    callback_data=f"cancel_booking:{booking_id}",
                 )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Назад",
-                    callback_data=f"back_to_schedule:{direction_id}",
-                ),
-                InlineKeyboardButton(text="Главное меню", callback_data="back_main"),
-            ],
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="Назад",
+                callback_data=f"back_to_schedule:{direction_id}",
+            ),
+            InlineKeyboardButton(text="Главное меню", callback_data="back_main"),
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 __all__ = ["slots_keyboard", "slot_actions_keyboard", "SlotButton"]

@@ -18,6 +18,12 @@ NO_SUBSCRIPTIONS = "Активных абонементов нет."
 SUBSCRIPTIONS_TITLE = "Ваши абонементы:"
 BOOKING_CONFIRMED = "Запись подтверждена!"
 BOOKING_PAYMENT_REQUIRED = "Бронь создана, оплатите занятие, чтобы подтвердить запись."
+BOOKING_CANCEL_SUCCESS = "Запись отменена."
+BOOKING_CANCEL_REFUND_NOTE = (
+    "Мы вернули вам одно занятие. Вы можете записаться на другую тренировку."
+)
+BOOKING_CANCEL_TOO_LATE = "Отменить занятие можно не позднее чем за 24 часа до начала."
+BOOKING_CANCEL_ERROR = "Не удалось отменить запись."
 SUBSCRIPTION_PAYMENT_REQUIRED = "Оплатите абонемент, чтобы завершить оформление."
 SUBSCRIPTION_PURCHASE_SUCCESS = (
     "Готово! Абонемент успешно оформлен.\n"
@@ -113,6 +119,18 @@ def booking_confirmed(direction_name: str, starts_at: str) -> str:
         f"«{clean_direction}»\n{starts_at}\n"
         "Ждём вас на занятии!"
     )
+
+
+def booking_canceled(direction_name: str, starts_at: str) -> str:
+    clean_direction = direction_name or "Занятие"
+    parts = [
+        BOOKING_CANCEL_SUCCESS,
+        "",
+        f"«{clean_direction}»",
+        starts_at,
+        BOOKING_CANCEL_REFUND_NOTE,
+    ]
+    return "\n".join(part for part in parts if part)
 
 
 def booking_payment_required(

@@ -23,6 +23,7 @@ from dancestudio.bot.keyboards import (
 )
 from dancestudio.bot.services import (
     create_booking,
+    cancel_booking,
     create_subscription_payment,
     fetch_directions,
     fetch_products,
@@ -196,29 +197,18 @@ async def show_addresses(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data == "my_bookings")
-async def my_bookings(callback: CallbackQuery) -> None:
-    user = callback.from_user
-    if not user:
-        await callback.answer(texts.API_ERROR, show_alert=True)
-        return
+async def _compose_bookings_view(
+    tg_id: int,
+) -> tuple[str, InlineKeyboardMarkup, list[Mapping[str, object]]]:
+    bookings = await fetch_bookings(tg_id=tg_id)
     try:
-        await sync_user(tg_id=user.id, full_name=user.full_name)
-    except HTTPError:
-        pass
-    try:
-        bookings = await fetch_bookings(tg_id=user.id)
-    except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
-        return
-
-    try:
-        subscriptions = await fetch_subscriptions(tg_id=user.id)
+        subscriptions = await fetch_subscriptions(tg_id=tg_id)
     except HTTPError:
         subscriptions = None
 
     items: list[dict[str, object]] = []
     pay_rows: list[list[InlineKeyboardButton]] = []
+    cancel_rows: list[list[InlineKeyboardButton]] = []
     for booking in bookings:
         slot = booking.get("slot", {})
         short_label, _ = _format_slot_time(slot)
@@ -246,6 +236,23 @@ async def my_bookings(callback: CallbackQuery) -> None:
             entry["note"] = " · ".join(note_parts)
         items.append(entry)
 
+        booking_id = booking.get("id")
+        if (
+            isinstance(booking_id, int)
+            and status in {"reserved", "confirmed"}
+        ):
+            button_text = (
+                f"Отменить · {short_label}" if short_label else "Отменить запись"
+            )
+            cancel_rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=button_text,
+                        callback_data=f"cancel_booking:{booking_id}",
+                    )
+                ]
+            )
+
     sections: list[str] = [texts.bookings_list(items)]
     if subscriptions is not None:
         subscription_items: list[dict[str, object]] = []
@@ -264,7 +271,7 @@ async def my_bookings(callback: CallbackQuery) -> None:
         sections.append(texts.subscriptions_summary(subscription_items))
 
     text = "\n\n".join(section for section in sections if section)
-    keyboard_rows: list[list[InlineKeyboardButton]] = [*pay_rows]
+    keyboard_rows: list[list[InlineKeyboardButton]] = [*pay_rows, *cancel_rows]
     keyboard_rows.append(
         [InlineKeyboardButton(text="Обновить", callback_data="my_bookings")]
     )
@@ -272,6 +279,24 @@ async def my_bookings(callback: CallbackQuery) -> None:
         [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
     )
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+    return text, reply_markup, bookings
+
+
+@router.callback_query(F.data == "my_bookings")
+async def my_bookings(callback: CallbackQuery) -> None:
+    user = callback.from_user
+    if not user:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    try:
+        await sync_user(tg_id=user.id, full_name=user.full_name)
+    except HTTPError:
+        pass
+    try:
+        text, reply_markup, _ = await _compose_bookings_view(user.id)
+    except HTTPError:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
     await _safe_edit_message(callback.message, text, reply_markup=reply_markup)
     await callback.answer()
 
@@ -502,12 +527,33 @@ async def show_slot_details(callback: CallbackQuery) -> None:
         await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
+    existing_booking_id: int | None = None
+    if callback.from_user:
+        try:
+            user_bookings = await fetch_bookings(tg_id=callback.from_user.id)
+        except HTTPError:
+            user_bookings = None
+        if user_bookings:
+            for booking in user_bookings:
+                slot_info = booking.get("slot", {})
+                if (
+                    isinstance(slot_info, Mapping)
+                    and slot_info.get("id") == slot_id
+                    and str(booking.get("status", "")) in {"reserved", "confirmed"}
+                ):
+                    booking_id = booking.get("id")
+                    if isinstance(booking_id, int):
+                        existing_booking_id = booking_id
+                        break
+
     _, long_label = _format_slot_time(slot)
     slot_text = texts.slot_details(direction.get("name", ""), slot, long_label)
     await _safe_edit_message(
         callback.message,
         slot_text,
-        reply_markup=slot_actions_keyboard(direction_id, slot_id),
+        reply_markup=slot_actions_keyboard(
+            direction_id, slot_id, booking_id=existing_booking_id
+        ),
     )
     await callback.answer()
 
@@ -591,6 +637,66 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
     await message.answer(text, reply_markup=reply_markup)
     await callback.answer()
     await _prompt_full_name_if_missing(message, state, user_payload)
+
+
+@router.callback_query(F.data.startswith("cancel_booking:"))
+async def cancel_booking_callback(callback: CallbackQuery) -> None:
+    user = callback.from_user
+    message = callback.message
+    if not user or not message:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    try:
+        booking_id = int(callback.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        return
+
+    try:
+        booking = await cancel_booking(tg_id=user.id, booking_id=booking_id)
+    except HTTPError as exc:
+        if exc.response is not None:
+            detail = exc.response.json()
+            detail_text = detail.get("detail") if isinstance(detail, dict) else None
+            status_code = exc.response.status_code
+            if status_code == 404:
+                await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+            else:
+                await callback.answer(detail_text or texts.API_ERROR, show_alert=True)
+        else:
+            await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+
+    slot = booking.get("slot", {})
+    _, long_label = _format_slot_time(slot)
+    direction_name = slot.get("direction_name", "")
+    status_value = str(booking.get("status", ""))
+
+    if status_value == "late_cancel":
+        await callback.answer(texts.BOOKING_CANCEL_TOO_LATE, show_alert=True)
+        return
+
+    if status_value != "canceled":
+        await callback.answer(texts.BOOKING_CANCEL_ERROR, show_alert=True)
+        return
+
+    await callback.answer(texts.BOOKING_CANCEL_SUCCESS)
+    reply_markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
+            [InlineKeyboardButton(text="Главное меню", callback_data="back_main")],
+        ]
+    )
+    await message.answer(
+        texts.booking_canceled(direction_name, long_label),
+        reply_markup=reply_markup,
+    )
+
+    try:
+        text, bookings_markup, _ = await _compose_bookings_view(user.id)
+        await _safe_edit_message(message, text, reply_markup=bookings_markup)
+    except HTTPError:
+        pass
 
 
 @router.callback_query(F.data == "back_to_directions")
