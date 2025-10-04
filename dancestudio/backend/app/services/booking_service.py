@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from ..db import models
+from .subscription_service import grant_class_credit
 from ..db.models.class_slot import SlotStatus
 from ..db.models.booking import BookingStatus, BookingSource
 from ..db.models.subscription import SubscriptionStatus
@@ -102,17 +103,11 @@ def cancel_booking(db: Session, booking: models.Booking, actor: str) -> models.B
         return booking
     if booking.status not in [BookingStatus.confirmed, BookingStatus.reserved]:
         raise BookingError("Cannot cancel")
-    if booking.status == BookingStatus.confirmed:
-        subscription = (
-            db.query(models.Subscription)
-            .filter(
-                models.Subscription.user_id == booking.user_id,
-                models.Subscription.status == SubscriptionStatus.active,
-            )
-            .first()
-        )
-        if subscription:
-            subscription.remaining_classes += 1
+    grant_class_credit(
+        db,
+        user_id=booking.user_id,
+        slot_direction_id=slot.direction_id,
+    )
     booking.status = BookingStatus.canceled
     booking.canceled_at = now
     booking.canceled_by = actor

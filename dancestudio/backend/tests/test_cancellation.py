@@ -21,6 +21,9 @@ def test_cancellation_rules(db_session):
     booking = booking_service.book_class(db_session, user, slot)
     result = booking_service.cancel_booking(db_session, booking, actor="user")
     assert result.status == models.BookingStatus.canceled
+    subscriptions = db_session.query(models.Subscription).filter_by(user_id=user.id).all()
+    assert len(subscriptions) == 1
+    assert subscriptions[0].remaining_classes == 1
 
     slot_late = models.ClassSlot(
         direction_id=direction.id,
@@ -34,3 +37,6 @@ def test_cancellation_rules(db_session):
     booking2 = booking_service.book_class(db_session, user, slot_late)
     result2 = booking_service.cancel_booking(db_session, booking2, actor="user")
     assert result2.status == models.BookingStatus.late_cancel
+    subscriptions_after = db_session.query(models.Subscription).filter_by(user_id=user.id).all()
+    assert len(subscriptions_after) == 1
+    assert subscriptions_after[0].remaining_classes == 0

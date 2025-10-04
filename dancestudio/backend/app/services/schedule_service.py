@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..core.constants import SLOT_CANCELED_REASON
 from ..db import models
+from .subscription_service import grant_class_credit
 
 
 def get_available_slots(db: Session, direction_id: int | None = None) -> list[models.ClassSlot]:
@@ -55,18 +56,11 @@ def cancel_slot(
     )
 
     for booking in bookings:
-        if booking.status == models.BookingStatus.confirmed:
-            subscription = (
-                db.query(models.Subscription)
-                .filter(models.Subscription.user_id == booking.user_id)
-                .filter(models.Subscription.status == models.SubscriptionStatus.active)
-                .filter(models.Subscription.valid_to >= now)
-                .order_by(models.Subscription.valid_to)
-                .first()
-            )
-            if subscription:
-                subscription.remaining_classes += 1
-
+        grant_class_credit(
+            db,
+            user_id=booking.user_id,
+            slot_direction_id=slot.direction_id,
+        )
         booking.status = models.BookingStatus.canceled
         booking.canceled_at = now
         booking.canceled_by = actor
@@ -87,6 +81,13 @@ def cancel_slot(
         direction_name = None
         if booking.slot and booking.slot.direction:
             direction_name = booking.slot.direction.name
+        message_text = None
+        if booking.slot:
+            message_text = (
+                f"Занятие «{direction_name or 'Занятие'}» "
+                f"{booking.slot.starts_at.isoformat()} отменено. "
+                "Мы вернули вам одно занятие."
+            )
 
         db.add(
             models.AuditLog(
@@ -100,6 +101,7 @@ def cancel_slot(
                     if booking.slot
                     else None,
                     "direction": direction_name,
+                    "message": message_text,
                 },
             )
         )
