@@ -28,6 +28,8 @@ class ClassSlotUpdate(BaseModel):
 
 class ClassSlot(ClassSlotBase):
     id: int
+    booked_seats: int | None = None
+    available_seats: int | None = None
 
     class Config:
         from_attributes = True
