@@ -94,7 +94,16 @@ def no_slots(name: str) -> str:
 def slot_details(direction_name: str, slot: Mapping[str, object], starts_at: str) -> str:
     clean_direction = direction_name or "Занятие"
     duration = slot.get("duration_min", 0)
-    capacity = slot.get("capacity", 0)
+    capacity_raw = slot.get("capacity")
+    try:
+        capacity = int(capacity_raw)
+    except (TypeError, ValueError):
+        capacity = 0
+    available_raw = slot.get("available_seats")
+    try:
+        available = int(available_raw)
+    except (TypeError, ValueError):
+        available = None
     price = _format_price(slot.get("price_single_visit"))
     allow_subscription = slot.get("allow_subscription", False)
     status = slot.get("status", "scheduled")
@@ -102,7 +111,9 @@ def slot_details(direction_name: str, slot: Mapping[str, object], starts_at: str
     lines = [f"{clean_direction}", starts_at]
     if duration:
         lines.append(f"Длительность: {duration} мин")
-    if capacity:
+    if available is not None and capacity:
+        lines.append(f"Свободно: {max(available, 0)}/{capacity}")
+    elif capacity:
         lines.append(f"Мест: {capacity}")
     if price:
         lines.append(f"Разовое посещение: {price}")

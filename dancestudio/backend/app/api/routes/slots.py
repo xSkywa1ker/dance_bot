@@ -1,5 +1,6 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from ...api import deps
 from ...db.session import get_db
@@ -23,7 +24,32 @@ def list_slots(
         query = query.filter(models.ClassSlot.starts_at <= to_dt)
     if direction_id:
         query = query.filter(models.ClassSlot.direction_id == direction_id)
-    return query.order_by(models.ClassSlot.starts_at).all()
+    slots = query.order_by(models.ClassSlot.starts_at).all()
+    slot_ids = [slot.id for slot in slots]
+    if slot_ids:
+        active_counts = dict(
+            db.query(
+                models.Booking.class_slot_id,
+                func.count(models.Booking.id),
+            )
+            .filter(models.Booking.class_slot_id.in_(slot_ids))
+            .filter(
+                models.Booking.status.in_(
+                    [models.BookingStatus.reserved, models.BookingStatus.confirmed]
+                )
+            )
+            .group_by(models.Booking.class_slot_id)
+            .all()
+        )
+    else:
+        active_counts = {}
+    for slot in slots:
+        booked = int(active_counts.get(slot.id, 0))
+        capacity = int(slot.capacity or 0)
+        available = max(capacity - booked, 0) if capacity else 0
+        setattr(slot, "booked_seats", booked)
+        setattr(slot, "available_seats", available)
+    return slots
 
 
 @router.post("", response_model=schemas.ClassSlot)

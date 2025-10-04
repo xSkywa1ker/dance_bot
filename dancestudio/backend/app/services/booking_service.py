@@ -61,8 +61,19 @@ def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models
                     models.Booking.class_slot_id == locked_slot.id,
                 )
             ).scalar_one_or_none()
-            if existing and existing.status in [BookingStatus.reserved, BookingStatus.confirmed]:
-                raise BookingError("Already booked")
+            reuse_booking = False
+            if existing:
+                if existing.status in [BookingStatus.reserved, BookingStatus.confirmed]:
+                    raise BookingError("Already booked")
+                booking = existing
+                reuse_booking = True
+            else:
+                booking = models.Booking(
+                    user_id=user.id,
+                    class_slot_id=locked_slot.id,
+                    source=BookingSource.bot,
+                )
+                db.add(booking)
             now = _utc_now()
             subscription = (
                 db.execute(
@@ -84,20 +95,16 @@ def book_class(db: Session, user: models.User, slot: models.ClassSlot) -> models
                 or subscription.product.direction_limit_id == locked_slot.direction_id
             ):
                 subscription.remaining_classes -= 1
-                booking = models.Booking(
-                    user_id=user.id,
-                    class_slot_id=locked_slot.id,
-                    status=BookingStatus.confirmed,
-                    source=BookingSource.bot,
-                )
+                booking.status = BookingStatus.confirmed
             else:
-                booking = models.Booking(
-                    user_id=user.id,
-                    class_slot_id=locked_slot.id,
-                    status=BookingStatus.reserved,
-                    source=BookingSource.bot,
-                )
-            db.add(booking)
+                booking.status = BookingStatus.reserved
+            booking.source = BookingSource.bot
+            booking.created_at = now
+            booking.canceled_at = None
+            booking.canceled_by = None
+            booking.cancellation_reason = None
+            if reuse_booking:
+                db.add(booking)
     except IntegrityError as exc:
         constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", "")
         if constraint == "uq_booking_user_slot":
