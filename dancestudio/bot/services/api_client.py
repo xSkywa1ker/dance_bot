@@ -60,6 +60,11 @@ class Booking(TypedDict, total=False):
     needs_payment: bool
     payment_status: str | None
     payment_url: str | None
+    payment_id: int | None
+    payment_provider: str | None
+    payment_order_id: str | None
+    payment_amount: float | None
+    payment_currency: str | None
     reservation_expires_at: str | None
 
 
@@ -76,6 +81,16 @@ class Subscription(TypedDict, total=False):
 
 class StudioAddresses(TypedDict, total=False):
     addresses: str
+
+
+class PaymentResponse(TypedDict, total=False):
+    payment_id: int
+    status: str
+    payment_url: str | None
+    order_id: str | None
+    provider: str | None
+    amount: float | None
+    currency: str | None
 
 
 _settings = get_settings()
@@ -170,13 +185,23 @@ async def cancel_booking(*, tg_id: int, booking_id: int) -> Booking:
 
 async def create_subscription_payment(
     *, tg_id: int, product_id: int, full_name: str | None = None, phone: str | None = None
-) -> dict[str, Any]:
+) -> PaymentResponse:
     payload: dict[str, Any] = {"tg_id": tg_id, "product_id": product_id}
     if full_name is not None:
         payload["full_name"] = full_name
     if phone is not None:
         payload["phone"] = phone
     data = await _post("/bot/payments/subscription", payload)
+    return data
+
+
+async def confirm_payment(
+    *, order_id: str, status: str = "paid", provider_payment_id: str | None = None
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"order_id": order_id, "status": status}
+    if provider_payment_id:
+        payload["provider_payment_id"] = provider_payment_id
+    data = await _post("/payments/webhook", payload)
     return data
 
 
@@ -194,6 +219,7 @@ __all__ = [
     "Booking",
     "Subscription",
     "StudioAddresses",
+    "PaymentResponse",
     "fetch_products",
     "fetch_directions",
     "fetch_slots",
@@ -203,5 +229,6 @@ __all__ = [
     "cancel_booking",
     "sync_user",
     "create_subscription_payment",
+    "confirm_payment",
     "fetch_studio_addresses",
 ]

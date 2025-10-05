@@ -1,2 +1,3 @@
-from . import menu
-__all__ = ["menu"]
+from . import menu, payments
+
+__all__ = ["menu", "payments"]

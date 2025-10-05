@@ -14,6 +14,17 @@ make seed         # загрузить тестовые данные
 - Админ-панель: http://localhost:5173/
 - Telegram-бот: подключите токен из `.env`.
 
+## Оплаты через Telegram
+
+Чтобы принимать платежи напрямую через счета Telegram:
+
+1. Включите Payments для бота в @BotFather и получите provider token.
+2. В `.env` укажите `PAYMENT_PROVIDER=telegram`,
+   `PAYMENT_PROVIDER_TOKEN=<ваш provider token>` и при необходимости
+   `PAYMENT_CURRENCY` (по умолчанию `RUB`).
+3. Перезапустите сервисы (`make up`) — бот начнёт отправлять инвойсы в Telegram,
+   а успешные оплаты будут автоматически подтверждаться в backend.
+
 ## Структура
 - `bot/` — Telegram бот на aiogram
 - `backend/` — FastAPI приложение с Alembic, SQLAlchemy, APScheduler
