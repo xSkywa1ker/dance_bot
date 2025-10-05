@@ -47,6 +47,16 @@ def test_build_and_parse_payload() -> None:
     assert payments.parse_payload(payload) == (payments.KIND_SUBSCRIPTION, "order-123")
     assert payments.parse_payload("invalid") is None
 
+def test_explain_invoice_error_known_code() -> None:
+    message = payments.explain_invoice_error(
+        "TelegramBadRequest: Bad Request: PAYMENT_PROVIDER_INVALID"
+    )
+    assert "токен" in message.lower()
+
+
+def test_explain_invoice_error_unknown_code() -> None:
+    message = payments.explain_invoice_error("Some unexpected error")
+    assert "telegram" in message.lower()
 
 class _DummyMessage:
     def __init__(self) -> None:
@@ -86,4 +96,3 @@ async def test_send_invoice_sanitises_fields(monkeypatch: pytest.MonkeyPatch) ->
     assert title == label
     assert description == title
     assert provider_token == "token"
-

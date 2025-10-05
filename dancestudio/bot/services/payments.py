@@ -1,11 +1,12 @@
 """Utilities for working with Telegram payments in the bot."""
 
 from __future__ import annotations
-
+import logging
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from secrets import token_urlsafe
 from typing import Final
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import LabeledPrice, Message
 
 try:  # pragma: no cover - depends on import context
@@ -21,6 +22,30 @@ KIND_BOOKING: Final[str] = "booking"
 _DESCRIPTION_MAX_LENGTH: Final[int] = 255
 _TITLE_MAX_LENGTH: Final[int] = 32
 
+_LOGGER = logging.getLogger(__name__)
+_DEFAULT_INVOICE_ERROR_MESSAGE: Final[str] = (
+    "Telegram отклонил счёт. Проверьте токен оплаты и настройки платежей в BotFather."
+)
+_KNOWN_ERROR_HINTS: Final[dict[str, str]] = {
+    "PAYMENT_PROVIDER_INVALID": (
+        "Telegram отклонил токен оплаты. Проверьте, что в @BotFather указан верный токен "
+        "для этого бота."
+    ),
+    "PAYMENT_PROVIDER_MISMATCH": (
+        "Токен оплаты привязан к другому боту. Получите новый токен в @BotFather."
+    ),
+    "CURRENCY_TOTAL_AMOUNT_INVALID": (
+        "Telegram не принимает указанную сумму в выбранной валюте. Проверьте стоимость и "
+        "значение переменной PAYMENT_CURRENCY."
+    ),
+    "CURRENCY_NOT_SUPPORTED": (
+        "Выбранная валюта не поддерживается Telegram. Укажите поддерживаемую валюту в настройках."
+    ),
+    "AMOUNT_NOT_ENOUGH": (
+        "Сумма счёта слишком мала для Telegram. Увеличьте стоимость или проверьте точность "
+        "округления."
+    ),
+}
 
 
 def payments_enabled() -> bool:
@@ -99,23 +124,48 @@ async def send_invoice(
     if not safe_description:
         safe_description = safe_title
     safe_description = safe_description[:_DESCRIPTION_MAX_LENGTH]
-    await message.answer_invoice(
-        title=safe_title,
-        description=safe_description,
-        payload=payload,
-        provider_token=provider_token,
-        currency=_currency_code(),
-        prices=prices,
-        start_parameter=token_urlsafe(16),
-    )
+    try:
+        await message.answer_invoice(
+            title=safe_title,
+            description=safe_description,
+            payload=payload,
+            provider_token=provider_token,
+            currency=_currency_code(),
+            prices=prices,
+            start_parameter=token_urlsafe(16),
+        )
+    except TelegramBadRequest as exc:
+        error_hint = explain_invoice_error(str(exc))
+        _LOGGER.warning(
+            "Telegram rejected invoice: %s (payload=%s, amount_minor=%s)",
+            exc,
+            payload,
+            minor_units,
+            exc_info=True,
+        )
+        raise RuntimeError(error_hint) from exc
 
 
 __all__ = [
     "KIND_BOOKING",
     "KIND_SUBSCRIPTION",
+    "explain_invoice_error",
     "payments_enabled",
     "build_payload",
     "parse_payload",
     "send_invoice",
     "to_minor_units",
 ]
+
+
+def explain_invoice_error(error_text: str) -> str:
+    """Return a human-readable explanation for Telegram payment errors."""
+
+    if not error_text:
+        return _DEFAULT_INVOICE_ERROR_MESSAGE
+
+    normalized = error_text.upper()
+    for marker, message in _KNOWN_ERROR_HINTS.items():
+        if marker in normalized:
+            return message
+    return _DEFAULT_INVOICE_ERROR_MESSAGE
