@@ -22,6 +22,7 @@ _DESCRIPTION_MAX_LENGTH: Final[int] = 255
 _TITLE_MAX_LENGTH: Final[int] = 32
 
 
+
 def payments_enabled() -> bool:
     """Return ``True`` when the bot is configured to send invoices."""
 

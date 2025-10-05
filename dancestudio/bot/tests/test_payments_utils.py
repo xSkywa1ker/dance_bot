@@ -86,3 +86,4 @@ async def test_send_invoice_sanitises_fields(monkeypatch: pytest.MonkeyPatch) ->
     assert title == label
     assert description == title
     assert provider_token == "token"
+
