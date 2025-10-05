@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
+from secrets import token_urlsafe
 from aiogram.types import LabeledPrice, Message
-from aiogram.utils.payload import generate_payload
 
 from dancestudio.bot.config import get_settings
 
@@ -59,7 +59,7 @@ async def send_invoice(
         provider_token=settings.payment_provider_token,
         currency=_currency_code(),
         prices=prices,
-        start_parameter=generate_payload(),
+        start_parameter=token_urlsafe(16),
     )
 
 
