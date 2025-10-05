@@ -19,13 +19,15 @@ except ModuleNotFoundError as exc:  # pragma: no cover - fallback for demo scrip
 KIND_SUBSCRIPTION: Final[str] = "subscription"
 KIND_BOOKING: Final[str] = "booking"
 _DESCRIPTION_MAX_LENGTH: Final[int] = 255
+_TITLE_MAX_LENGTH: Final[int] = 32
+
 
 
 def payments_enabled() -> bool:
     """Return ``True`` when the bot is configured to send invoices."""
 
     settings = get_settings()
-    return bool(settings.payment_provider_token)
+    return bool((settings.payment_provider_token or "").strip())
 
 
 def _currency_code() -> str:
@@ -71,7 +73,8 @@ async def send_invoice(
     """Send a Telegram invoice to the user."""
 
     settings = get_settings()
-    if not settings.payment_provider_token:
+    provider_token = (settings.payment_provider_token or "").strip()
+    if not provider_token:
         raise RuntimeError("Payment provider token is not configured")
 
     try:
@@ -82,13 +85,25 @@ async def send_invoice(
     if minor_units <= 0:
         raise RuntimeError("Invoice amount must be positive")
 
-    prices = [LabeledPrice(label=title, amount=minor_units)]
-    safe_description = description.strip()[:_DESCRIPTION_MAX_LENGTH]
+    safe_title = (title or "").strip()
+    if not safe_title:
+        safe_title = "Счёт"
+    if len(safe_title) > _TITLE_MAX_LENGTH:
+        safe_title = safe_title[:_TITLE_MAX_LENGTH].rstrip()
+    if not safe_title:
+        safe_title = "Счёт"
+
+    prices = [LabeledPrice(label=safe_title, amount=minor_units)]
+
+    safe_description = description.strip()
+    if not safe_description:
+        safe_description = safe_title
+    safe_description = safe_description[:_DESCRIPTION_MAX_LENGTH]
     await message.answer_invoice(
-        title=title,
+        title=safe_title,
         description=safe_description,
         payload=payload,
-        provider_token=settings.payment_provider_token,
+        provider_token=provider_token,
         currency=_currency_code(),
         prices=prices,
         start_parameter=token_urlsafe(16),
