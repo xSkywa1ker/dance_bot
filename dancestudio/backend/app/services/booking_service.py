@@ -128,7 +128,21 @@ def cancel_booking(db: Session, booking: models.Booking, actor: str) -> models.B
     if booking.status not in [BookingStatus.confirmed, BookingStatus.reserved]:
         raise BookingError("Cannot cancel")
 
-    if booking.status in [BookingStatus.confirmed, BookingStatus.reserved]:
+    should_grant_credit = False
+    if booking.status == BookingStatus.confirmed:
+        should_grant_credit = True
+    else:
+        paid_payment_exists = (
+            db.query(models.Payment)
+            .filter(models.Payment.class_slot_id == booking.class_slot_id)
+            .filter(models.Payment.user_id == booking.user_id)
+            .filter(models.Payment.status == models.PaymentStatus.paid)
+            .first()
+            is not None
+        )
+        should_grant_credit = paid_payment_exists
+
+    if should_grant_credit:
         grant_class_credit(
             db,
             user_id=booking.user_id,

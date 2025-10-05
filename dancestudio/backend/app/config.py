@@ -25,6 +25,7 @@ class Settings(BaseModel):
 
     payment_provider: str = Field(default="stub", alias="PAYMENT_PROVIDER")
     payment_return_url: str = Field(default="http://localhost", alias="PAYMENT_RETURN_URL")
+    payment_currency: str = Field(default="RUB", alias="PAYMENT_CURRENCY")
     payment_webhook_secret: str = Field(default="", alias="PAYMENT_WEBHOOK_SECRET")
     payment_api_key: str = Field(default="", alias="PAYMENT_API_KEY")
     payment_api_secret: str = Field(default="", alias="PAYMENT_API_SECRET")
