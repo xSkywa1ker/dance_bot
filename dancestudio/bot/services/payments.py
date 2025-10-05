@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
 from secrets import token_urlsafe
-
 from aiogram.types import LabeledPrice, Message
 
 from dancestudio.bot.config import get_settings
