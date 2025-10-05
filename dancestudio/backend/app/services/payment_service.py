@@ -19,12 +19,13 @@ def create_payment(
 ) -> tuple[models.Payment, dict[str, Any]]:
     order_id = str(uuid.uuid4())
     settings = get_settings()
+    currency = (settings.payment_currency or "RUB").upper()
     payment = models.Payment(
         user_id=user.id,
         product_id=product.id if product else None,
         class_slot_id=slot.id if slot else None,
         amount=amount,
-        currency="RUB",
+        currency=currency,
         provider=models.PaymentProvider(settings.payment_provider),
         order_id=order_id,
         purpose=purpose,
@@ -36,7 +37,7 @@ def create_payment(
     gateway_response = gateway_client.create_payment(
         order_id=order_id,
         amount=amount,
-        currency=payment.currency,
+        currency=currency,
         description=f"Dance class payment #{order_id}",
         return_url=settings.payment_return_url,
         metadata={"user_id": user.id},
