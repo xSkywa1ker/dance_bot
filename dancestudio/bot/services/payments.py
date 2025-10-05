@@ -1,6 +1,7 @@
 """Utilities for working with Telegram payments in the bot."""
 
 from __future__ import annotations
+
 import logging
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from secrets import token_urlsafe
