@@ -33,4 +33,8 @@ def get_gateway(settings: Settings) -> BasePaymentGateway:
         from .yookassa import YooKassaGateway
 
         return YooKassaGateway(settings)
+    if settings.payment_provider == "telegram":
+        from .telegram import TelegramGateway
+
+        return TelegramGateway(settings)
     raise ValueError(f"Unsupported payment provider {settings.payment_provider}")

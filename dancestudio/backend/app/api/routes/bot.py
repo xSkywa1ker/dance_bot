@@ -40,6 +40,11 @@ class BotBookingResponse(BaseModel):
     needs_payment: bool
     payment_status: str | None = None
     payment_url: str | None = None
+    payment_id: int | None = None
+    payment_provider: str | None = None
+    payment_order_id: str | None = None
+    payment_amount: float | None = None
+    payment_currency: str | None = None
     reservation_expires_at: datetime | None = None
 
 
@@ -70,6 +75,10 @@ class BotPaymentResponse(BaseModel):
     payment_id: int
     status: str
     payment_url: str | None = None
+    order_id: str | None = None
+    provider: str | None = None
+    amount: float | None = None
+    currency: str | None = None
 
 
 def _sync_user(db: Session, payload: SyncUserRequest) -> models.User:
@@ -108,8 +117,22 @@ def _serialize_booking(
     direction = slot.direction
     status_value = booking.status.value if hasattr(booking.status, "value") else str(booking.status)
     payment_status = None
+    payment_id: int | None = None
+    payment_provider: str | None = None
+    payment_order_id: str | None = None
+    payment_amount: float | None = None
+    payment_currency: str | None = None
     if payment:
         payment_status = payment.status.value if hasattr(payment.status, "value") else str(payment.status)
+        payment_id = payment.id
+        payment_provider = (
+            payment.provider.value
+            if hasattr(payment.provider, "value")
+            else str(payment.provider)
+        )
+        payment_order_id = payment.order_id
+        payment_amount = float(payment.amount)
+        payment_currency = payment.currency
     price = float(slot.price_single_visit) if slot.price_single_visit is not None else None
     reservation_expires_at = None
     if booking.status == models.BookingStatus.reserved:
@@ -132,6 +155,11 @@ def _serialize_booking(
         needs_payment=status_value == models.BookingStatus.reserved.value,
         payment_status=payment_status,
         payment_url=payment_url,
+        payment_id=payment_id,
+        payment_provider=payment_provider,
+        payment_order_id=payment_order_id,
+        payment_amount=payment_amount,
+        payment_currency=payment_currency,
         reservation_expires_at=reservation_expires_at,
     )
 
@@ -330,8 +358,15 @@ def purchase_subscription(
     status_value = (
         payment.status.value if hasattr(payment.status, "value") else str(payment.status)
     )
+    provider_value = (
+        payment.provider.value if hasattr(payment.provider, "value") else str(payment.provider)
+    )
     return BotPaymentResponse(
         payment_id=payment.id,
         status=status_value,
         payment_url=payment_url,
+        order_id=payment.order_id,
+        provider=provider_value,
+        amount=float(payment.amount),
+        currency=payment.currency,
     )

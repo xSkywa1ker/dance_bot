@@ -24,7 +24,11 @@ def slots_keyboard(direction_id: int, slots: Iterable[SlotButton]) -> InlineKeyb
 
 
 def slot_actions_keyboard(
-    direction_id: int, slot_id: int, *, booking_id: int | None = None
+    direction_id: int,
+    slot_id: int,
+    *,
+    booking_id: int | None = None,
+    payment_button: InlineKeyboardButton | None = None,
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
         [
@@ -34,6 +38,8 @@ def slot_actions_keyboard(
             )
         ]
     ]
+    if payment_button is not None:
+        rows.append([payment_button])
     if booking_id is not None:
         rows.append(
             [
