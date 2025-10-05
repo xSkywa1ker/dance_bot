@@ -607,6 +607,7 @@ async def show_slot_details(callback: CallbackQuery) -> None:
         await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
+    existing_booking: Mapping[str, object] | None = None
     existing_booking_id: int | None = None
     if callback.from_user:
         try:
@@ -623,16 +624,44 @@ async def show_slot_details(callback: CallbackQuery) -> None:
                 ):
                     booking_id = booking.get("id")
                     if isinstance(booking_id, int):
+                        existing_booking = booking
                         existing_booking_id = booking_id
                         break
 
     _, long_label = _format_slot_time(slot)
     slot_text = texts.slot_details(direction.get("name", ""), slot, long_label)
+    payment_button: InlineKeyboardButton | None = None
+    if existing_booking and existing_booking_id is not None:
+        status_value = str(existing_booking.get("status") or "")
+        if status_value == "reserved":
+            payments_available = payment_services.payments_enabled()
+            provider = str(existing_booking.get("payment_provider") or "")
+            order_id = existing_booking.get("payment_order_id")
+            if (
+                provider == "telegram"
+                and payments_available
+                and isinstance(order_id, str)
+                and order_id.strip()
+            ):
+                payment_button = InlineKeyboardButton(
+                    text="Оплатить",
+                    callback_data=f"pay_booking:{existing_booking_id}",
+                )
+            else:
+                payment_url = _resolve_payment_url(existing_booking.get("payment_url"))
+                if payment_url:
+                    payment_button = InlineKeyboardButton(
+                        text="Оплатить",
+                        url=payment_url,
+                    )
     await _safe_edit_message(
         callback.message,
         slot_text,
         reply_markup=slot_actions_keyboard(
-            direction_id, slot_id, booking_id=existing_booking_id
+            direction_id,
+            slot_id,
+            booking_id=existing_booking_id,
+            payment_button=payment_button,
         ),
     )
     await callback.answer()
