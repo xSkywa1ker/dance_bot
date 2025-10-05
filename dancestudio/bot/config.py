@@ -19,7 +19,12 @@ class BotSettings:
     timezone: str = _env("TIMEZONE", "Europe/Moscow")
     api_token: str = _env("BOT_API_TOKEN", "")
     payment_fallback_url: str = _env("PAYMENT_FALLBACK_URL", "")
-    payment_provider_token: str = _env("PAYMENT_PROVIDER_TOKEN", "")
+    _payment_token: str = _env("PAYMENT_PROVIDER_TOKEN", "")
+    if not _payment_token:
+        # Backwards compatibility with early docker-compose examples that used
+        # ``PROVIDER_TOKEN`` for the Telegram payment provider token.
+        _payment_token = _env("PROVIDER_TOKEN", "")
+    payment_provider_token: str = _payment_token
     payment_currency: str = _env("PAYMENT_CURRENCY", "RUB")
 
 

@@ -50,6 +50,10 @@ PAYMENT_LINK_UNAVAILABLE_ALERT = (
     "Не удалось сформировать ссылку для оплаты. "
     "Пожалуйста, свяжитесь с администратором."
 )
+PAYMENT_INVOICE_FAILED_ALERT = (
+    "Не удалось отправить счёт через Telegram. "
+    "Пожалуйста, свяжитесь с администратором."
+)
 PAYMENT_INVOICE_NOTE = (
     "Счёт на оплату отправлен отдельным сообщением в Telegram.\n"
     "Нажмите «Оплатить» в счёте, чтобы завершить оплату."
@@ -167,6 +171,12 @@ def booking_payment_required(
     else:
         parts.append(PAYMENT_LINK_UNAVAILABLE_MESSAGE)
     return "\n".join(parts)
+
+
+def payment_invoice_error(hint: str | None = None) -> str:
+    if hint and hint.strip():
+        return f"{PAYMENT_INVOICE_FAILED_ALERT}\n{hint.strip()}"
+    return PAYMENT_INVOICE_FAILED_ALERT
 
 
 def studio_addresses(addresses: str | None) -> str:
