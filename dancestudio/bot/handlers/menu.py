@@ -6,6 +6,8 @@ from json import JSONDecodeError
 from typing import Mapping
 from zoneinfo import ZoneInfo
 
+import logging
+
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
@@ -38,6 +40,9 @@ from dancestudio.bot.services import (
 from dancestudio.bot.services import payments as payment_services
 from dancestudio.bot.services.api_client import Direction
 from dancestudio.bot.utils import texts
+
+
+logger = logging.getLogger(__name__)
 from states.booking import BookingStates
 
 from states.booking import BookingStates
@@ -443,6 +448,7 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
             invoice_amount = None
 
     invoice_sent = False
+    invoice_error: str | None = None
     invoice_text = texts.subscription_payment_details(
         product.get("name", ""), price or None, via_invoice=True
     )
@@ -465,8 +471,20 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
                 payload=payload_value,
             )
             invoice_sent = True
-        except (TelegramBadRequest, RuntimeError):
+        except RuntimeError as exc:
+            invoice_error = str(exc)
             invoice_sent = False
+            logger.warning(
+                "Failed to send Telegram invoice for subscription order %s: %s",
+                order_id,
+                exc,
+            )
+        except TelegramBadRequest as exc:
+            invoice_error = payment_services.explain_invoice_error(str(exc))
+            invoice_sent = False
+            logger.exception(
+                "Telegram API rejected subscription invoice for order %s", order_id
+            )
 
     if invoice_sent:
         buttons = [
@@ -498,7 +516,8 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
         if link_available:
             await callback.answer("Ссылка на оплату отправлена")
         else:
-            await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
+            alert_text = texts.payment_invoice_error(invoice_error)
+            await callback.answer(alert_text, show_alert=True)
     await _prompt_full_name_if_missing(message, state, user_payload)
 
 
@@ -752,6 +771,7 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
             direction_name, long_label, price_label or None, via_invoice=True
         )
         invoice_sent = False
+        invoice_error: str | None = None
         if (
             provider == "telegram"
             and payments_available
@@ -771,8 +791,20 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
                     payload=payload_value,
                 )
                 invoice_sent = True
-            except (TelegramBadRequest, RuntimeError):
+            except RuntimeError as exc:
+                invoice_error = str(exc)
                 invoice_sent = False
+                logger.warning(
+                    "Failed to send Telegram invoice for booking order %s: %s",
+                    order_id,
+                    exc,
+                )
+            except TelegramBadRequest as exc:
+                invoice_error = payment_services.explain_invoice_error(str(exc))
+                invoice_sent = False
+                logger.exception(
+                    "Telegram API rejected booking invoice for order %s", order_id
+                )
 
         if invoice_sent:
             reply_markup = InlineKeyboardMarkup(
@@ -805,7 +837,7 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
             if link_available:
                 callback_text = "Ссылка на оплату отправлена"
             else:
-                callback_text = texts.PAYMENT_LINK_UNAVAILABLE_ALERT
+                callback_text = texts.payment_invoice_error(invoice_error)
                 callback_alert = True
     else:
         reply_markup = InlineKeyboardMarkup(
