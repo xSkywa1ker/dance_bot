@@ -19,6 +19,8 @@ class BotSettings:
     timezone: str = _env("TIMEZONE", "Europe/Moscow")
     api_token: str = _env("BOT_API_TOKEN", "")
     payment_fallback_url: str = _env("PAYMENT_FALLBACK_URL", "")
+    payment_provider_token: str = _env("PAYMENT_PROVIDER_TOKEN", "")
+    payment_currency: str = _env("PAYMENT_CURRENCY", "RUB")
 
 
 def get_settings() -> BotSettings:

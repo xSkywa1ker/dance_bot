@@ -34,6 +34,7 @@ class PaymentProvider(str, PyEnum):
     stripe = "stripe"
     tinkoff = "tinkoff"
     cloudpayments = "cloudpayments"
+    telegram = "telegram"
 
 
 class Payment(Base):
