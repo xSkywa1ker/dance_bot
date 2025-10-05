@@ -7,6 +7,7 @@ from typing import Mapping
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -34,6 +35,7 @@ from dancestudio.bot.services import (
     sync_user,
     fetch_studio_addresses,
 )
+from dancestudio.bot.services import payments as payment_services
 from dancestudio.bot.services.api_client import Direction
 from dancestudio.bot.utils import texts
 from states.booking import BookingStates
@@ -210,6 +212,7 @@ async def _compose_bookings_view(
     items: list[dict[str, object]] = []
     pay_rows: list[list[InlineKeyboardButton]] = []
     cancel_rows: list[list[InlineKeyboardButton]] = []
+    payments_available = payment_services.payments_enabled()
     for booking in bookings:
         slot = booking.get("slot", {})
         short_label, _ = _format_slot_time(slot)
@@ -217,6 +220,7 @@ async def _compose_bookings_view(
         title = f"{short_label} · {direction_name}" if short_label else direction_name
         status = str(booking.get("status", ""))
         entry: dict[str, object] = {"title": title, "status": status}
+        booking_id = booking.get("id")
         if status == "reserved":
             note_parts = ["не оплачено"]
             deadline_label = _format_reservation_deadline(
@@ -224,20 +228,42 @@ async def _compose_bookings_view(
             )
             if deadline_label:
                 entry["payment_due"] = deadline_label
-            payment_url = _resolve_payment_url(booking.get("payment_url"))
-            if payment_url:
+            payment_provider = str(booking.get("payment_provider") or "")
+            payment_order_id = booking.get("payment_order_id")
+            invoice_available = (
+                payment_provider == "telegram"
+                and payments_available
+                and isinstance(booking_id, int)
+                and isinstance(payment_order_id, str)
+                and payment_order_id.strip()
+            )
+            if invoice_available:
                 button_text = (
                     f"Оплатить · {short_label}" if short_label else "Оплатить"
                 )
                 pay_rows.append(
-                    [InlineKeyboardButton(text=button_text, url=payment_url)]
+                    [
+                        InlineKeyboardButton(
+                            text=button_text,
+                            callback_data=f"pay_booking:{booking_id}",
+                        )
+                    ]
                 )
+                note_parts.append("оплатите через Telegram")
             else:
-                note_parts.append(texts.PAYMENT_LINK_UNAVAILABLE_NOTE)
+                payment_url = _resolve_payment_url(booking.get("payment_url"))
+                if payment_url:
+                    button_text = (
+                        f"Оплатить · {short_label}" if short_label else "Оплатить"
+                    )
+                    pay_rows.append(
+                        [InlineKeyboardButton(text=button_text, url=payment_url)]
+                    )
+                else:
+                    note_parts.append(texts.PAYMENT_LINK_UNAVAILABLE_NOTE)
             entry["note"] = " · ".join(note_parts)
         items.append(entry)
 
-        booking_id = booking.get("id")
         if (
             isinstance(booking_id, int)
             and status in {"reserved", "confirmed"}
@@ -401,25 +427,78 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
             await callback.answer(texts.API_ERROR, show_alert=True)
         return
 
-    payment_url = _resolve_payment_url(payment_response.get("payment_url"))
-    price = texts.format_price(product.get("price"))
-    link_available = payment_url is not None
-    text = texts.subscription_payment_details(
-        product.get("name", ""), price or None, link_available=link_available
+    raw_price = product.get("price")
+    price = texts.format_price(raw_price)
+    provider = str(payment_response.get("provider") or "")
+    order_id = payment_response.get("order_id")
+    amount_value = payment_response.get("amount")
+    try:
+        invoice_amount = float(amount_value) if amount_value is not None else None
+    except (TypeError, ValueError):
+        invoice_amount = None
+    if invoice_amount is None:
+        try:
+            invoice_amount = float(raw_price) if raw_price is not None else None
+        except (TypeError, ValueError):
+            invoice_amount = None
+
+    invoice_sent = False
+    invoice_text = texts.subscription_payment_details(
+        product.get("name", ""), price or None, via_invoice=True
     )
-    buttons: list[list[InlineKeyboardButton]] = []
-    if payment_url:
-        buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
-    buttons.append([InlineKeyboardButton(text="Главное меню", callback_data="back_main")])
-    await _safe_edit_message(
-        message,
-        text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-    )
-    if link_available:
-        await callback.answer("Ссылка на оплату отправлена")
+    if (
+        provider == "telegram"
+        and payment_services.payments_enabled()
+        and isinstance(order_id, str)
+        and order_id.strip()
+        and invoice_amount is not None
+    ):
+        try:
+            payload_value = payment_services.build_payload(
+                payment_services.KIND_SUBSCRIPTION, order_id
+            )
+            await payment_services.send_invoice(
+                message,
+                title=product.get("name", "Абонемент"),
+                description=invoice_text,
+                amount=invoice_amount,
+                payload=payload_value,
+            )
+            invoice_sent = True
+        except (TelegramBadRequest, RuntimeError):
+            invoice_sent = False
+
+    if invoice_sent:
+        buttons = [
+            [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
+        ]
+        await _safe_edit_message(
+            message,
+            invoice_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        )
+        await callback.answer("Счёт на оплату отправлен")
     else:
-        await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
+        payment_url = _resolve_payment_url(payment_response.get("payment_url"))
+        link_available = payment_url is not None
+        text = texts.subscription_payment_details(
+            product.get("name", ""), price or None, link_available=link_available
+        )
+        buttons: list[list[InlineKeyboardButton]] = []
+        if payment_url:
+            buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
+        buttons.append(
+            [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
+        )
+        await _safe_edit_message(
+            message,
+            text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        )
+        if link_available:
+            await callback.answer("Ссылка на оплату отправлена")
+        else:
+            await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
     await _prompt_full_name_if_missing(message, state, user_payload)
 
 
@@ -620,18 +699,85 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
     direction_name = slot.get("direction_name", "")
     price_label = texts.format_price(slot.get("price_single_visit"))
     reply_markup: InlineKeyboardMarkup | None = None
+    callback_text: str | None = None
+    callback_alert = False
+    payments_available = payment_services.payments_enabled()
     if booking.get("needs_payment"):
-        payment_url = _resolve_payment_url(booking.get("payment_url"))
-        link_available = payment_url is not None
-        buttons: list[list[InlineKeyboardButton]] = []
-        if payment_url:
-            buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
-        buttons.append([InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")])
-        buttons.append([InlineKeyboardButton(text="Главное меню", callback_data="back_main")])
-        reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-        text = texts.booking_payment_required(
-            direction_name, long_label, price_label or None, link_available=link_available
+        provider = str(booking.get("payment_provider") or "")
+        order_id = booking.get("payment_order_id")
+        amount_value = booking.get("payment_amount")
+        try:
+            invoice_amount = float(amount_value) if amount_value is not None else None
+        except (TypeError, ValueError):
+            invoice_amount = None
+        if invoice_amount is None:
+            try:
+                invoice_amount = (
+                    float(slot.get("price_single_visit"))
+                    if slot.get("price_single_visit") is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                invoice_amount = None
+        invoice_text = texts.booking_payment_required(
+            direction_name, long_label, price_label or None, via_invoice=True
         )
+        invoice_sent = False
+        if (
+            provider == "telegram"
+            and payments_available
+            and isinstance(order_id, str)
+            and order_id.strip()
+            and invoice_amount is not None
+        ):
+            try:
+                payload_value = payment_services.build_payload(
+                    payment_services.KIND_BOOKING, order_id
+                )
+                await payment_services.send_invoice(
+                    message,
+                    title=direction_name or "Занятие",
+                    description=invoice_text,
+                    amount=invoice_amount,
+                    payload=payload_value,
+                )
+                invoice_sent = True
+            except (TelegramBadRequest, RuntimeError):
+                invoice_sent = False
+
+        if invoice_sent:
+            reply_markup = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
+                    [InlineKeyboardButton(text="Главное меню", callback_data="back_main")],
+                ]
+            )
+            text = invoice_text
+            callback_text = "Счёт на оплату отправлен"
+        else:
+            payment_url = _resolve_payment_url(booking.get("payment_url"))
+            link_available = payment_url is not None
+            buttons: list[list[InlineKeyboardButton]] = []
+            if payment_url:
+                buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
+            buttons.append(
+                [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")]
+            )
+            buttons.append(
+                [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
+            )
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+            text = texts.booking_payment_required(
+                direction_name,
+                long_label,
+                price_label or None,
+                link_available=link_available,
+            )
+            if link_available:
+                callback_text = "Ссылка на оплату отправлена"
+            else:
+                callback_text = texts.PAYMENT_LINK_UNAVAILABLE_ALERT
+                callback_alert = True
     else:
         reply_markup = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -643,7 +789,103 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
 
     await _safe_edit_message(message, texts.MAIN_MENU, reply_markup=main_menu_keyboard())
     await message.answer(text, reply_markup=reply_markup)
-    await callback.answer()
+    if callback_text:
+        await callback.answer(callback_text, show_alert=callback_alert)
+    else:
+        await callback.answer()
+    await _prompt_full_name_if_missing(message, state, user_payload)
+
+
+@router.callback_query(F.data.startswith("pay_booking:"))
+async def send_booking_invoice(callback: CallbackQuery, state: FSMContext) -> None:
+    user = callback.from_user
+    message = callback.message
+    if not user or not message:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    try:
+        booking_id = int(callback.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        return
+
+    try:
+        user_payload = await sync_user(tg_id=user.id, full_name=user.full_name)
+    except HTTPError:
+        user_payload = None
+
+    try:
+        bookings = await fetch_bookings(tg_id=user.id)
+    except HTTPError:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+
+    booking = next((item for item in bookings if item.get("id") == booking_id), None)
+    if not booking or booking.get("status") != "reserved":
+        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        return
+
+    provider = str(booking.get("payment_provider") or "")
+    payments_available = payment_services.payments_enabled()
+    order_id = booking.get("payment_order_id")
+    if (
+        provider != "telegram"
+        or not payments_available
+        or not isinstance(order_id, str)
+        or not order_id.strip()
+    ):
+        await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
+        return
+
+    amount_value = booking.get("payment_amount")
+    try:
+        invoice_amount = float(amount_value) if amount_value is not None else None
+    except (TypeError, ValueError):
+        invoice_amount = None
+    slot = booking.get("slot", {})
+    if invoice_amount is None:
+        try:
+            invoice_amount = (
+                float(slot.get("price_single_visit"))
+                if slot.get("price_single_visit") is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            invoice_amount = None
+    if invoice_amount is None:
+        await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
+        return
+
+    _, long_label = _format_slot_time(slot)
+    direction_name = slot.get("direction_name", "")
+    price_label = texts.format_price(slot.get("price_single_visit"))
+    invoice_text = texts.booking_payment_required(
+        direction_name, long_label, price_label or None, via_invoice=True
+    )
+
+    try:
+        payload_value = payment_services.build_payload(
+            payment_services.KIND_BOOKING, order_id
+        )
+        await payment_services.send_invoice(
+            message,
+            title=direction_name or "Занятие",
+            description=invoice_text,
+            amount=invoice_amount,
+            payload=payload_value,
+        )
+    except (TelegramBadRequest, RuntimeError):
+        await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
+        return
+
+    reply_markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
+            [InlineKeyboardButton(text="Главное меню", callback_data="back_main")],
+        ]
+    )
+    await message.answer(invoice_text, reply_markup=reply_markup)
+    await callback.answer("Счёт на оплату отправлен")
     await _prompt_full_name_if_missing(message, state, user_payload)
 
 

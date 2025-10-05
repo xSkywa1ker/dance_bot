@@ -49,7 +49,7 @@ def _bootstrap_namespace() -> None:
 _bootstrap_namespace()
 
 from dancestudio.bot.config import get_settings
-from dancestudio.bot.handlers import menu
+from dancestudio.bot.handlers import menu, payments
 from dancestudio.bot.middlewares.logging import LoggingMiddleware
 
 
@@ -65,6 +65,7 @@ async def main() -> None:
     dp = Dispatcher(storage=MemoryStorage())
     dp.message.middleware(LoggingMiddleware())
     dp.include_router(menu.router)
+    dp.include_router(payments.router)
 
     await bot.set_my_commands(
         [

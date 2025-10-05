@@ -50,6 +50,10 @@ PAYMENT_LINK_UNAVAILABLE_ALERT = (
     "Не удалось сформировать ссылку для оплаты. "
     "Пожалуйста, свяжитесь с администратором."
 )
+PAYMENT_INVOICE_NOTE = (
+    "Счёт на оплату отправлен отдельным сообщением в Telegram.\n"
+    "Нажмите «Оплатить» в счёте, чтобы завершить оплату."
+)
 
 
 def _format_price(value: float | int | None) -> str:
@@ -150,12 +154,15 @@ def booking_payment_required(
     price: str | None,
     *,
     link_available: bool = True,
+    via_invoice: bool = False,
 ) -> str:
     clean_direction = direction_name or "Занятие"
     parts = [BOOKING_PAYMENT_REQUIRED, "", f"«{clean_direction}»", starts_at]
     if price:
         parts.append(f"Стоимость: {price}")
-    if link_available:
+    if via_invoice:
+        parts.append(PAYMENT_INVOICE_NOTE)
+    elif link_available:
         parts.append("Перейдите по ссылке ниже, чтобы оплатить занятие.")
     else:
         parts.append(PAYMENT_LINK_UNAVAILABLE_MESSAGE)
@@ -169,13 +176,19 @@ def studio_addresses(addresses: str | None) -> str:
 
 
 def subscription_payment_details(
-    product_name: str, price: str | None, *, link_available: bool = True
+    product_name: str,
+    price: str | None,
+    *,
+    link_available: bool = True,
+    via_invoice: bool = False,
 ) -> str:
     clean_name = product_name or "Абонемент"
     parts = [SUBSCRIPTION_PAYMENT_REQUIRED, "", f"«{clean_name}»"]
     if price:
         parts.append(f"Стоимость: {price}")
-    if link_available:
+    if via_invoice:
+        parts.append(PAYMENT_INVOICE_NOTE)
+    elif link_available:
         parts.append("Перейдите по ссылке ниже, чтобы оплатить.")
     else:
         parts.append(PAYMENT_LINK_UNAVAILABLE_MESSAGE)
