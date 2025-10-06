@@ -26,7 +26,16 @@ def upgrade() -> None:
         sa.Column("file_path", sa.String(length=255), nullable=False),
         sa.Column("file_name", sa.String(length=255), nullable=False),
         sa.Column("content_type", sa.String(length=128), nullable=False),
-        sa.Column("media_type", media_type_enum, nullable=False),
+        sa.Column(
+            "media_type",
+            sa.Enum(
+                "image",
+                "video",
+                name="settingmediatype",
+                create_type=False,
+            ),
+            nullable=False,
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
