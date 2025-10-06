@@ -2,6 +2,9 @@ from dataclasses import dataclass
 import os
 from dotenv import load_dotenv
 
+from .core.config import CURRENCY as _PAYMENT_CURRENCY
+from .core.config import PROVIDER_TOKEN as _PAYMENT_PROVIDER_TOKEN
+
 load_dotenv()
 
 
@@ -19,8 +22,8 @@ class BotSettings:
     timezone: str = _env("TIMEZONE", "Europe/Moscow")
     api_token: str = _env("BOT_API_TOKEN", "")
     payment_fallback_url: str = _env("PAYMENT_FALLBACK_URL", "")
-    payment_provider_token: str = _env("PAYMENT_PROVIDER_TOKEN", "")
-    payment_currency: str = _env("PAYMENT_CURRENCY", "RUB")
+    payment_provider_token: str = _PAYMENT_PROVIDER_TOKEN
+    payment_currency: str = _PAYMENT_CURRENCY
 
 
 def get_settings() -> BotSettings:

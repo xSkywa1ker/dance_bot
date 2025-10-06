@@ -1,25 +1,21 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
+import json
+import os
 import pytest
+
+os.environ.setdefault("PAYMENT_PROVIDER", "telegram")
+os.environ.setdefault("PAYMENT_CURRENCY", "RUB")
+os.environ.setdefault("PAYMENT_PROVIDER_TOKEN", "test-token")
 
 from ..services import payments
 
 
 def test_payments_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        payments,
-        "get_settings",
-        lambda: SimpleNamespace(payment_provider_token="", payment_currency="RUB"),
-    )
+    monkeypatch.setattr(payments, "PROVIDER_TOKEN", "", raising=False)
     assert not payments.payments_enabled()
 
-    monkeypatch.setattr(
-        payments,
-        "get_settings",
-        lambda: SimpleNamespace(payment_provider_token="token", payment_currency="RUB"),
-    )
+    monkeypatch.setattr(payments, "PROVIDER_TOKEN", "token", raising=False)
     assert payments.payments_enabled()
 
 
@@ -40,6 +36,18 @@ def test_to_minor_units(amount: float, expected: int) -> None:
 def test_to_minor_units_invalid() -> None:
     with pytest.raises(ValueError):
         payments.to_minor_units("not-a-number")  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError):
+        payments.to_minor_units(0)
+
+
+def test_build_provider_receipt() -> None:
+    payload = payments.build_provider_receipt(1050, payments.CURRENCY, "Абонемент")
+    data = json.loads(payload)
+    item = data["receipt"]["items"][0]
+
+    assert item["amount"] == {"value": "10.50", "currency": payments.CURRENCY}
+    assert item["quantity"] == "1.00"
 
 
 def test_build_and_parse_payload() -> None:
@@ -69,14 +77,7 @@ class _DummyMessage:
 @pytest.mark.asyncio()
 async def test_send_invoice_sanitises_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     dummy = _DummyMessage()
-    monkeypatch.setattr(
-        payments,
-        "get_settings",
-        lambda: SimpleNamespace(
-            payment_provider_token="  token  ",
-            payment_currency="rub",
-        ),
-    )
+    monkeypatch.setattr(payments, "PROVIDER_TOKEN", "token", raising=False)
 
     await payments.send_invoice(
         dummy,
@@ -95,4 +96,12 @@ async def test_send_invoice_sanitises_fields(monkeypatch: pytest.MonkeyPatch) ->
     assert len(title) <= 32
     assert title == label
     assert description == title
+    provider_data = dummy.invoice_kwargs["provider_data"]
+
     assert provider_token == "token"
+    assert isinstance(provider_data, str)
+    data = json.loads(provider_data)
+    assert data["receipt"]["items"][0]["amount"] == {
+        "value": "10.00",
+        "currency": payments.CURRENCY,
+    }
