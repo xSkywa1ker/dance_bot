@@ -7,6 +7,7 @@ Create Date: 2025-10-07
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "0006_add_setting_media_and_manual_subscription"
@@ -16,7 +17,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    media_type_enum = sa.Enum("image", "video", name="settingmediatype")
+    media_type_enum = postgresql.ENUM(
+        "image", "video", name="settingmediatype", create_type=True
+    )
     media_type_enum.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
@@ -28,7 +31,7 @@ def upgrade() -> None:
         sa.Column("content_type", sa.String(length=128), nullable=False),
         sa.Column(
             "media_type",
-            sa.Enum(
+            postgresql.ENUM(
                 "image",
                 "video",
                 name="settingmediatype",
@@ -55,5 +58,5 @@ def downgrade() -> None:
     op.drop_column("subscriptions", "initial_classes")
     op.drop_table("setting_media")
 
-    media_type_enum = sa.Enum(name="settingmediatype")
+    media_type_enum = postgresql.ENUM(name="settingmediatype")
     media_type_enum.drop(op.get_bind(), checkfirst=True)
