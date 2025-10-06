@@ -16,20 +16,11 @@ branch_labels = None
 depends_on = None
 
 
+media_type_enum = postgresql.ENUM("image", "video", name="settingmediatype")
+
+
 def upgrade() -> None:
-    op.execute(
-        """
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_type WHERE typname = 'settingmediatype'
-            ) THEN
-                CREATE TYPE settingmediatype AS ENUM ('image', 'video');
-            END IF;
-        END
-        $$;
-        """
-    )
+    media_type_enum.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "setting_media",
@@ -40,12 +31,7 @@ def upgrade() -> None:
         sa.Column("content_type", sa.String(length=128), nullable=False),
         sa.Column(
             "media_type",
-            postgresql.ENUM(
-                "image",
-                "video",
-                name="settingmediatype",
-                create_type=False,
-            ),
+            media_type_enum,
             nullable=False,
         ),
         sa.Column(
@@ -67,5 +53,4 @@ def downgrade() -> None:
     op.drop_column("subscriptions", "initial_classes")
     op.drop_table("setting_media")
 
-    media_type_enum = postgresql.ENUM(name="settingmediatype")
     media_type_enum.drop(op.get_bind(), checkfirst=True)
