@@ -1,6 +1,6 @@
 """Add stub and telegram providers to payment enum
 
-Revision ID: 0005_extend_payment_provider_enum
+Revision ID: 0005_extend_payment_provider
 Revises: 0004_add_settings_table
 Create Date: 2025-10-06
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = "0005_extend_payment_provider_enum"
+revision = "0005_extend_payment_provider"
 down_revision = "0004_add_settings_table"
 branch_labels = None
 depends_on = None
