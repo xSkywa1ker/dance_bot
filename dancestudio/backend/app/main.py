@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from .api.routes import (
     auth,
     directions,
@@ -15,6 +16,7 @@ from .api.routes import (
 from .db.session import Base, engine, SessionLocal
 from .config import get_settings
 from .services.admin import ensure_admin_exists
+from .services.storage import BASE_MEDIA_DIR, ensure_media_directory
 
 
 app = FastAPI(title="DanceStudioBot API", version="1.0.0")
@@ -37,6 +39,9 @@ app.include_router(users.router, prefix="/api/v1")
 app.include_router(misc.router, prefix="/api/v1")
 app.include_router(bot.router, prefix="/api/v1")
 app.include_router(settings.router, prefix="/api/v1")
+
+ensure_media_directory()
+app.mount("/media", StaticFiles(directory=BASE_MEDIA_DIR), name="media")
 
 
 @app.on_event("startup")

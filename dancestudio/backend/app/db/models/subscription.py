@@ -18,6 +18,7 @@ class Subscription(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     remaining_classes: Mapped[int] = mapped_column(Integer, default=0)
+    initial_classes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     valid_to: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[SubscriptionStatus] = mapped_column(Enum(SubscriptionStatus), default=SubscriptionStatus.active)

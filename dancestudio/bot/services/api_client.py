@@ -79,8 +79,16 @@ class Subscription(TypedDict, total=False):
     status: str
 
 
+class AddressMedia(TypedDict, total=False):
+    id: int
+    url: str
+    media_type: str
+    filename: str
+
+
 class StudioAddresses(TypedDict, total=False):
     addresses: str
+    media: list[AddressMedia]
 
 
 class PaymentResponse(TypedDict, total=False):
@@ -148,10 +156,18 @@ async def fetch_slots(*, direction_id: int | None = None) -> list[Slot]:
     return data
 
 
-async def sync_user(*, tg_id: int, full_name: str | None = None, phone: str | None = None) -> dict[str, Any]:
+async def sync_user(
+    *,
+    tg_id: int,
+    full_name: str | None = None,
+    age: int | None = None,
+    phone: str | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {"tg_id": tg_id}
     if full_name is not None:
         payload["full_name"] = full_name
+    if age is not None:
+        payload["age"] = age
     if phone is not None:
         payload["phone"] = phone
     return await _post("/bot/users/sync", payload)
@@ -167,10 +183,19 @@ async def fetch_subscriptions(*, tg_id: int) -> list[Subscription]:
     return data
 
 
-async def create_booking(*, tg_id: int, slot_id: int, full_name: str | None = None, phone: str | None = None) -> Booking:
+async def create_booking(
+    *,
+    tg_id: int,
+    slot_id: int,
+    full_name: str | None = None,
+    age: int | None = None,
+    phone: str | None = None,
+) -> Booking:
     payload: dict[str, Any] = {"tg_id": tg_id, "slot_id": slot_id}
     if full_name is not None:
         payload["full_name"] = full_name
+    if age is not None:
+        payload["age"] = age
     if phone is not None:
         payload["phone"] = phone
     data = await _post("/bot/bookings", payload)
@@ -184,11 +209,18 @@ async def cancel_booking(*, tg_id: int, booking_id: int) -> Booking:
 
 
 async def create_subscription_payment(
-    *, tg_id: int, product_id: int, full_name: str | None = None, phone: str | None = None
+    *,
+    tg_id: int,
+    product_id: int,
+    full_name: str | None = None,
+    age: int | None = None,
+    phone: str | None = None,
 ) -> PaymentResponse:
     payload: dict[str, Any] = {"tg_id": tg_id, "product_id": product_id}
     if full_name is not None:
         payload["full_name"] = full_name
+    if age is not None:
+        payload["age"] = age
     if phone is not None:
         payload["phone"] = phone
     data = await _post("/bot/payments/subscription", payload)
@@ -207,9 +239,15 @@ async def confirm_payment(
 
 async def fetch_studio_addresses() -> StudioAddresses:
     data = await _get("/bot/addresses")
-    if isinstance(data, dict) and isinstance(data.get("addresses"), str):
-        return {"addresses": data["addresses"]}
-    return {"addresses": ""}
+    if not isinstance(data, dict):
+        return {"addresses": "", "media": []}
+    addresses = data.get("addresses")
+    media = data.get("media")
+    result: StudioAddresses = {
+        "addresses": addresses if isinstance(addresses, str) else "",
+        "media": media if isinstance(media, list) else [],
+    }
+    return result
 
 
 __all__ = [
@@ -218,6 +256,7 @@ __all__ = [
     "Slot",
     "Booking",
     "Subscription",
+    "AddressMedia",
     "StudioAddresses",
     "PaymentResponse",
     "fetch_products",

@@ -9,3 +9,4 @@ from .waitlist import Waitlist, WaitlistStatus
 from .admin_user import AdminUser, AdminRole
 from .audit_log import AuditLog, ActorType
 from .setting import Setting
+from .setting_media import SettingMedia, SettingMediaType
