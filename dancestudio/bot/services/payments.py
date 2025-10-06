@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from secrets import token_urlsafe
 from typing import Final
 
+from aiogram import types
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import LabeledPrice, Message
+from aiogram.types import Message
 
-try:  # pragma: no cover - depends on import context
-    from dancestudio.bot.config import get_settings
-except ModuleNotFoundError as exc:  # pragma: no cover - fallback for demo scripts
-    if exc.name and not exc.name.startswith("dancestudio"):
-        raise
-    from config import get_settings  # type: ignore[no-redef]
+from dancestudio.bot.core.config import CURRENCY, PROVIDER, PROVIDER_TOKEN
 
 
 KIND_SUBSCRIPTION: Final[str] = "subscription"
@@ -52,27 +48,39 @@ _KNOWN_ERROR_HINTS: Final[dict[str, str]] = {
 def payments_enabled() -> bool:
     """Return ``True`` when the bot is configured to send invoices."""
 
-    settings = get_settings()
-    return bool((settings.payment_provider_token or "").strip())
+    return bool(PROVIDER_TOKEN)
 
 
-def _currency_code() -> str:
-    settings = get_settings()
-    currency = settings.payment_currency or "RUB"
-    return currency.upper()
-
-
-def to_minor_units(amount: float | int) -> int:
-    """Convert a major currency amount into the smallest currency units."""
+def to_minor_units(amount_rub: object) -> int:
+    """Convert the given amount in RUB into kopeks using half-up rounding."""
 
     try:
-        value = Decimal(str(amount))
-    except (InvalidOperation, ValueError, TypeError) as exc:  # pragma: no cover - safety net
-        raise ValueError(f"Invalid amount value: {amount!r}") from exc
+        quantized = Decimal(str(amount_rub)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError) as exc:  # pragma: no cover - defensive
+        raise ValueError(f"Invalid amount value: {amount_rub!r}") from exc
 
-    quantized = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    minor_units = int((quantized * 100).to_integral_value(rounding=ROUND_HALF_UP))
-    return minor_units
+    minor = int(quantized * 100)
+    if minor <= 0:
+        raise ValueError("Amount must be >= 1 kopek")
+    return minor
+
+
+def build_provider_receipt(minor_amount: int, currency: str, title: str) -> str:
+    """Return provider_data JSON compatible with Telegram YooKassa receipts."""
+
+    value_rub = format(Decimal(minor_amount) / Decimal(100), ".2f")
+    receipt = {
+        "receipt": {
+            "items": [
+                {
+                    "description": (title or "Оплата")[:128],
+                    "quantity": "1.00",
+                    "amount": {"value": value_rub, "currency": currency},
+                }
+            ]
+        }
+    }
+    return json.dumps(receipt, ensure_ascii=False)
 
 
 def build_payload(kind: str, order_id: str) -> str:
@@ -98,8 +106,7 @@ async def send_invoice(
 ) -> None:
     """Send a Telegram invoice to the user."""
 
-    settings = get_settings()
-    provider_token = (settings.payment_provider_token or "").strip()
+    provider_token = PROVIDER_TOKEN
     if not provider_token:
         raise RuntimeError("Payment provider token is not configured")
 
@@ -107,9 +114,6 @@ async def send_invoice(
         minor_units = to_minor_units(amount)
     except ValueError as exc:
         raise RuntimeError("Failed to prepare invoice amount") from exc
-
-    if minor_units <= 0:
-        raise RuntimeError("Invoice amount must be positive")
 
     safe_title = (title or "").strip()
     if not safe_title:
@@ -119,21 +123,35 @@ async def send_invoice(
     if not safe_title:
         safe_title = "Счёт"
 
-    prices = [LabeledPrice(label=safe_title, amount=minor_units)]
+    prices = [types.LabeledPrice(label=safe_title, amount=minor_units)]
 
     safe_description = description.strip()
     if not safe_description:
         safe_description = safe_title
     safe_description = safe_description[:_DESCRIPTION_MAX_LENGTH]
+
+    provider_data = build_provider_receipt(minor_units, CURRENCY, safe_title)
+
+    _LOGGER.warning(
+        "tg_invoice_debug",
+        extra={
+            "provider": PROVIDER,
+            "currency": repr(CURRENCY),
+            "minor_amount": minor_units,
+            "prices_sum": sum(price.amount for price in prices),
+            "provider_data": bool(provider_data),
+        },
+    )
     try:
         await message.answer_invoice(
             title=safe_title,
             description=safe_description,
             payload=payload,
             provider_token=provider_token,
-            currency=_currency_code(),
+            currency=CURRENCY,
             prices=prices,
-            start_parameter=token_urlsafe(16),
+            is_flexible=False,
+            provider_data=provider_data,
         )
     except TelegramBadRequest as exc:
         error_hint = explain_invoice_error(str(exc))
@@ -152,6 +170,7 @@ __all__ = [
     "KIND_SUBSCRIPTION",
     "explain_invoice_error",
     "payments_enabled",
+    "build_provider_receipt",
     "build_payload",
     "parse_payload",
     "send_invoice",
