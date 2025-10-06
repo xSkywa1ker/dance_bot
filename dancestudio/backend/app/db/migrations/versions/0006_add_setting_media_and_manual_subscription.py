@@ -17,10 +17,19 @@ depends_on = None
 
 
 def upgrade() -> None:
-    media_type_enum = postgresql.ENUM(
-        "image", "video", name="settingmediatype", create_type=True
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_type WHERE typname = 'settingmediatype'
+            ) THEN
+                CREATE TYPE settingmediatype AS ENUM ('image', 'video');
+            END IF;
+        END
+        $$;
+        """
     )
-    media_type_enum.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "setting_media",
