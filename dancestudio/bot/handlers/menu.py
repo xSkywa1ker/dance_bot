@@ -12,7 +12,14 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    InputMediaVideo,
+    Message,
+)
 from httpx import HTTPError
 from urllib.parse import urlparse
 
@@ -45,11 +52,15 @@ from dancestudio.bot.utils import texts
 logger = logging.getLogger(__name__)
 from states.booking import BookingStates
 
-from states.booking import BookingStates
-
 router = Router()
 _settings = get_settings()
 _timezone = ZoneInfo(_settings.timezone)
+
+_KEEP_FULL_NAME_CALLBACK = "profile:keep_full_name"
+_KEEP_AGE_CALLBACK = "profile:keep_age"
+_PENDING_SLOT_KEY = "pending_slot_id"
+_EXISTING_FULL_NAME_KEY = "existing_full_name"
+_EXISTING_AGE_KEY = "existing_age"
 
 
 async def _safe_edit_message(
@@ -151,19 +162,321 @@ def _direction_title(direction: Direction) -> str:
     return texts.direction_schedule_title(name)
 
 
-async def _prompt_full_name_if_missing(
+def _chunked(sequence: list, size: int) -> list[list]:
+    return [sequence[i : i + size] for i in range(0, len(sequence), size)]
+
+
+def _extract_full_name(user_payload: Mapping[str, object] | None) -> str | None:
+    if not user_payload:
+        return None
+    value = user_payload.get("full_name")
+    if isinstance(value, str):
+        value = value.strip()
+        if value:
+            return value
+    return None
+
+
+def _is_valid_age(age: int) -> bool:
+    return 3 <= age <= 120
+
+
+def _extract_age(user_payload: Mapping[str, object] | None) -> int | None:
+    if not user_payload:
+        return None
+    value = user_payload.get("age")
+    try:
+        age = int(value)
+    except (TypeError, ValueError):
+        return None
+    return age if _is_valid_age(age) else None
+
+
+async def _prompt_full_name(
+    message: Message,
+    state: FSMContext,
+    existing_full_name: str | None = None,
+) -> None:
+    if not message:
+        return
+    await state.set_state(BookingStates.ask_full_name)
+    if existing_full_name:
+        await state.update_data(**{_EXISTING_FULL_NAME_KEY: existing_full_name})
+    keyboard: InlineKeyboardMarkup | None = None
+    if existing_full_name:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=texts.keep_full_name_button(existing_full_name),
+                        callback_data=_KEEP_FULL_NAME_CALLBACK,
+                    )
+                ]
+            ]
+        )
+    await message.answer(
+        texts.ask_full_name(existing_full_name),
+        reply_markup=keyboard,
+    )
+
+
+async def _prompt_age(
+    message: Message,
+    state: FSMContext,
+    existing_age: int | None = None,
+) -> None:
+    if not message:
+        return
+    await state.set_state(BookingStates.ask_age)
+    if existing_age is not None:
+        await state.update_data(**{_EXISTING_AGE_KEY: existing_age})
+    keyboard: InlineKeyboardMarkup | None = None
+    if existing_age is not None:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=texts.keep_age_button(existing_age),
+                        callback_data=_KEEP_AGE_CALLBACK,
+                    )
+                ]
+            ]
+        )
+    await message.answer(
+        texts.ask_age(existing_age),
+        reply_markup=keyboard,
+    )
+
+
+async def _ensure_profile(
+    message: Message,
+    state: FSMContext,
+    user_payload: Mapping[str, object] | None,
+    *,
+    slot_id: int | None = None,
+) -> bool:
+    if not message:
+        return True
+    if slot_id is not None:
+        await state.update_data(**{_PENDING_SLOT_KEY: slot_id})
+    full_name = _extract_full_name(user_payload)
+    if not full_name:
+        await _prompt_full_name(message, state)
+        return False
+    age = _extract_age(user_payload)
+    if age is None:
+        await _prompt_age(message, state)
+        return False
+    return True
+
+
+async def _prompt_profile_if_incomplete(
     message: Message,
     state: FSMContext,
     user_payload: Mapping[str, object] | None,
 ) -> None:
     if not message or not user_payload:
         return
-    full_name = user_payload.get("full_name")
-    if isinstance(full_name, str) and full_name.strip():
+    if await _ensure_profile(message, state, user_payload):
+        await state.clear()
+
+
+async def _complete_pending_booking(
+    message: Message,
+    state: FSMContext,
+    user_payload: Mapping[str, object] | None,
+) -> None:
+    data = await state.get_data()
+    slot_id = data.get(_PENDING_SLOT_KEY)
+    if not isinstance(slot_id, int):
         await state.clear()
         return
-    await state.set_state(BookingStates.ask_full_name)
-    await message.answer(texts.ASK_FULL_NAME)
+    if not message or not message.from_user:
+        await state.clear()
+        return
+    if not await _ensure_profile(message, state, user_payload, slot_id=slot_id):
+        return
+    await state.clear()
+    await _perform_booking_flow(
+        user=message.from_user,
+        message=message,
+        slot_id=slot_id,
+        state=state,
+        callback=None,
+        user_payload=user_payload,
+    )
+
+
+async def _answer_interaction(
+    callback: CallbackQuery | None,
+    message: Message,
+    *,
+    text: str | None = None,
+    show_alert: bool = False,
+) -> None:
+    if callback:
+        await callback.answer(text, show_alert=show_alert)
+    elif text:
+        await message.answer(text)
+
+
+async def _perform_booking_flow(
+    *,
+    user,
+    message: Message,
+    slot_id: int,
+    state: FSMContext,
+    callback: CallbackQuery | None,
+    user_payload: Mapping[str, object] | None,
+) -> None:
+    full_name = _extract_full_name(user_payload)
+    age = _extract_age(user_payload)
+    try:
+        booking = await create_booking(
+            tg_id=user.id,
+            slot_id=slot_id,
+            full_name=full_name,
+            age=age,
+        )
+    except HTTPError as exc:
+        if exc.response is not None:
+            status_code = exc.response.status_code
+            detail_text: str | None = None
+            try:
+                detail = exc.response.json()
+            except (ValueError, JSONDecodeError):
+                detail = None
+            if isinstance(detail, dict):
+                detail_text = detail.get("detail")
+            elif isinstance(detail, str):
+                detail_text = detail
+            if status_code == 409 and detail_text == "Already booked":
+                await _answer_interaction(callback, message, text=texts.ALREADY_BOOKED, show_alert=True)
+            elif status_code == 409 and detail_text == "Slot start time is in the past":
+                await _answer_interaction(callback, message, text=texts.PAST_SLOT_ERROR, show_alert=True)
+            elif status_code == 409 and detail_text == "No free seats":
+                await _answer_interaction(callback, message, text=texts.NO_SEATS_ERROR, show_alert=True)
+            else:
+                message_text = detail_text if isinstance(detail_text, str) else texts.API_ERROR
+                await _answer_interaction(callback, message, text=message_text, show_alert=True)
+        else:
+            await _answer_interaction(callback, message, text=texts.API_ERROR, show_alert=True)
+        return
+
+    slot = booking.get("slot", {})
+    _, long_label = _format_slot_time(slot)
+    direction_name = slot.get("direction_name", "")
+    price_label = texts.format_price(slot.get("price_single_visit"))
+    reply_markup: InlineKeyboardMarkup | None = None
+    callback_text: str | None = None
+    callback_alert = False
+    payments_available = payment_services.payments_enabled()
+    if booking.get("needs_payment"):
+        provider = str(booking.get("payment_provider") or "")
+        order_id = booking.get("payment_order_id")
+        amount_value = booking.get("payment_amount")
+        try:
+            invoice_amount = float(amount_value) if amount_value is not None else None
+        except (TypeError, ValueError):
+            invoice_amount = None
+        if invoice_amount is None:
+            try:
+                invoice_amount = (
+                    float(slot.get("price_single_visit"))
+                    if slot.get("price_single_visit") is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                invoice_amount = None
+        invoice_text = texts.booking_payment_required(
+            direction_name, long_label, price_label or None, via_invoice=True
+        )
+        invoice_sent = False
+        invoice_error: str | None = None
+        if (
+            provider == "telegram"
+            and payments_available
+            and isinstance(order_id, str)
+            and order_id.strip()
+            and invoice_amount is not None
+        ):
+            try:
+                payload_value = payment_services.build_payload(
+                    payment_services.KIND_BOOKING, order_id
+                )
+                await payment_services.send_invoice(
+                    message,
+                    title=direction_name or "Занятие",
+                    description=invoice_text,
+                    amount=invoice_amount,
+                    payload=payload_value,
+                )
+                invoice_sent = True
+            except RuntimeError as exc:
+                invoice_error = str(exc)
+                invoice_sent = False
+                logger.warning(
+                    "Failed to send Telegram invoice for booking order %s: %s",
+                    order_id,
+                    exc,
+                )
+            except TelegramBadRequest as exc:
+                invoice_error = payment_services.explain_invoice_error(str(exc))
+                invoice_sent = False
+                logger.exception(
+                    "Telegram API rejected booking invoice for order %s", order_id
+                )
+
+        if invoice_sent:
+            reply_markup = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
+                    [InlineKeyboardButton(text="Главное меню", callback_data="back_main")],
+                ]
+            )
+            text = invoice_text
+            callback_text = "Счёт на оплату отправлен"
+        else:
+            payment_url = _resolve_payment_url(booking.get("payment_url"))
+            link_available = payment_url is not None
+            buttons: list[list[InlineKeyboardButton]] = []
+            if payment_url:
+                buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
+            buttons.append(
+                [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")]
+            )
+            buttons.append(
+                [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
+            )
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+            text = texts.booking_payment_required(
+                direction_name,
+                long_label,
+                price_label or None,
+                link_available=link_available,
+            )
+            if link_available:
+                callback_text = "Ссылка на оплату отправлена"
+            else:
+                callback_text = texts.payment_invoice_error(invoice_error)
+                callback_alert = True
+    else:
+        reply_markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
+                [InlineKeyboardButton(text="Главное меню", callback_data="back_main")],
+            ]
+        )
+        text = texts.booking_confirmed(direction_name, long_label)
+
+    await _safe_edit_message(message, texts.MAIN_MENU, reply_markup=main_menu_keyboard())
+    await message.answer(text, reply_markup=reply_markup)
+    if callback:
+        if callback_text:
+            await callback.answer(callback_text, show_alert=callback_alert)
+        else:
+            await callback.answer()
+    await _prompt_profile_if_incomplete(message, state, user_payload)
 
 
 @router.message(CommandStart())
@@ -202,6 +515,27 @@ async def show_addresses(callback: CallbackQuery) -> None:
         text,
         reply_markup=main_menu_keyboard(),
     )
+    media_payload = result.get("media") if isinstance(result.get("media"), list) else []
+    media_group: list[InputMediaPhoto | InputMediaVideo] = []
+    for item in media_payload:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        media_type = str(item.get("media_type") or "image")
+        if media_type == "video":
+            media_group.append(InputMediaVideo(media=url))
+        else:
+            media_group.append(InputMediaPhoto(media=url))
+    for chunk in _chunked(media_group, 10):
+        if not chunk:
+            continue
+        try:
+            await callback.message.answer_media_group(chunk)
+        except TelegramBadRequest:
+            logger.exception("Failed to send studio address media group")
+            break
     await callback.answer()
 
 
@@ -518,7 +852,7 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
         else:
             alert_text = texts.payment_invoice_error(invoice_error)
             await callback.answer(alert_text, show_alert=True)
-    await _prompt_full_name_if_missing(message, state, user_payload)
+    await _prompt_profile_if_incomplete(message, state, user_payload)
 
 
 @router.callback_query(F.data == "book_class")
@@ -715,146 +1049,18 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
     except HTTPError:
         user_payload = None
 
-    try:
-        booking = await create_booking(tg_id=user.id, slot_id=slot_id)
-    except HTTPError as exc:
-        if exc.response is not None:
-            status_code = exc.response.status_code
-            detail_text: str | None = None
-            try:
-                detail = exc.response.json()
-            except (ValueError, JSONDecodeError):
-                detail = None
-            if isinstance(detail, dict):
-                detail_text = detail.get("detail")
-            elif isinstance(detail, str):
-                detail_text = detail
-            if status_code == 409 and detail_text == "Already booked":
-                await callback.answer(texts.ALREADY_BOOKED, show_alert=True)
-            elif status_code == 409 and detail_text == "Slot start time is in the past":
-                await callback.answer(texts.PAST_SLOT_ERROR, show_alert=True)
-            elif status_code == 409 and detail_text == "No free seats":
-                await callback.answer(texts.NO_SEATS_ERROR, show_alert=True)
-            else:
-                message_text = detail_text if isinstance(detail_text, str) else texts.API_ERROR
-                await callback.answer(message_text, show_alert=True)
-        else:
-            await callback.answer(texts.API_ERROR, show_alert=True)
+    if not await _ensure_profile(message, state, user_payload, slot_id=slot_id):
+        await callback.answer(texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
         return
 
-    slot = booking.get("slot", {})
-    _, long_label = _format_slot_time(slot)
-    direction_name = slot.get("direction_name", "")
-    price_label = texts.format_price(slot.get("price_single_visit"))
-    reply_markup: InlineKeyboardMarkup | None = None
-    callback_text: str | None = None
-    callback_alert = False
-    payments_available = payment_services.payments_enabled()
-    if booking.get("needs_payment"):
-        provider = str(booking.get("payment_provider") or "")
-        order_id = booking.get("payment_order_id")
-        amount_value = booking.get("payment_amount")
-        try:
-            invoice_amount = float(amount_value) if amount_value is not None else None
-        except (TypeError, ValueError):
-            invoice_amount = None
-        if invoice_amount is None:
-            try:
-                invoice_amount = (
-                    float(slot.get("price_single_visit"))
-                    if slot.get("price_single_visit") is not None
-                    else None
-                )
-            except (TypeError, ValueError):
-                invoice_amount = None
-        invoice_text = texts.booking_payment_required(
-            direction_name, long_label, price_label or None, via_invoice=True
-        )
-        invoice_sent = False
-        invoice_error: str | None = None
-        if (
-            provider == "telegram"
-            and payments_available
-            and isinstance(order_id, str)
-            and order_id.strip()
-            and invoice_amount is not None
-        ):
-            try:
-                payload_value = payment_services.build_payload(
-                    payment_services.KIND_BOOKING, order_id
-                )
-                await payment_services.send_invoice(
-                    message,
-                    title=direction_name or "Занятие",
-                    description=invoice_text,
-                    amount=invoice_amount,
-                    payload=payload_value,
-                )
-                invoice_sent = True
-            except RuntimeError as exc:
-                invoice_error = str(exc)
-                invoice_sent = False
-                logger.warning(
-                    "Failed to send Telegram invoice for booking order %s: %s",
-                    order_id,
-                    exc,
-                )
-            except TelegramBadRequest as exc:
-                invoice_error = payment_services.explain_invoice_error(str(exc))
-                invoice_sent = False
-                logger.exception(
-                    "Telegram API rejected booking invoice for order %s", order_id
-                )
-
-        if invoice_sent:
-            reply_markup = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
-                    [InlineKeyboardButton(text="Главное меню", callback_data="back_main")],
-                ]
-            )
-            text = invoice_text
-            callback_text = "Счёт на оплату отправлен"
-        else:
-            payment_url = _resolve_payment_url(booking.get("payment_url"))
-            link_available = payment_url is not None
-            buttons: list[list[InlineKeyboardButton]] = []
-            if payment_url:
-                buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
-            buttons.append(
-                [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")]
-            )
-            buttons.append(
-                [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
-            )
-            reply_markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-            text = texts.booking_payment_required(
-                direction_name,
-                long_label,
-                price_label or None,
-                link_available=link_available,
-            )
-            if link_available:
-                callback_text = "Ссылка на оплату отправлена"
-            else:
-                callback_text = texts.payment_invoice_error(invoice_error)
-                callback_alert = True
-    else:
-        reply_markup = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
-                [InlineKeyboardButton(text="Главное меню", callback_data="back_main")],
-            ]
-        )
-        text = texts.booking_confirmed(direction_name, long_label)
-
-    await _safe_edit_message(message, texts.MAIN_MENU, reply_markup=main_menu_keyboard())
-    await message.answer(text, reply_markup=reply_markup)
-    if callback_text:
-        await callback.answer(callback_text, show_alert=callback_alert)
-    else:
-        await callback.answer()
-    await _prompt_full_name_if_missing(message, state, user_payload)
+    await _perform_booking_flow(
+        user=user,
+        message=message,
+        slot_id=slot_id,
+        state=state,
+        callback=callback,
+        user_payload=user_payload,
+    )
 
 
 @router.callback_query(F.data.startswith("pay_booking:"))
@@ -947,7 +1153,7 @@ async def send_booking_invoice(callback: CallbackQuery, state: FSMContext) -> No
     )
     await message.answer(invoice_text, reply_markup=reply_markup)
     await callback.answer("Счёт на оплату отправлен")
-    await _prompt_full_name_if_missing(message, state, user_payload)
+    await _prompt_profile_if_incomplete(message, state, user_payload)
 
 
 @router.callback_query(F.data.startswith("cancel_booking:"))
@@ -1051,9 +1257,72 @@ async def save_full_name(message: Message, state: FSMContext) -> None:
         await message.answer(texts.FULL_NAME_INVALID)
         return
     try:
-        await sync_user(tg_id=user.id, full_name=full_name)
+        user_payload = await sync_user(tg_id=user.id, full_name=full_name)
     except HTTPError:
         await message.answer(texts.API_ERROR)
         return
-    await message.answer(texts.FULL_NAME_SAVED)
-    await state.clear()
+    await message.answer(texts.full_name_saved(full_name))
+    if _extract_age(user_payload) is None:
+        await _prompt_age(message, state)
+        return
+    await _complete_pending_booking(message, state, user_payload)
+
+
+@router.callback_query(BookingStates.ask_full_name, F.data == _KEEP_FULL_NAME_CALLBACK)
+async def keep_full_name(callback: CallbackQuery, state: FSMContext) -> None:
+    user = callback.from_user
+    message = callback.message
+    if not user or not message:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    try:
+        user_payload = await sync_user(tg_id=user.id)
+    except HTTPError:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    existing_age = _extract_age(user_payload)
+    if existing_age is None:
+        await _prompt_age(message, state, existing_age)
+        await callback.answer(texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
+        return
+    await _complete_pending_booking(message, state, user_payload)
+    await callback.answer(texts.KEPT_FULL_NAME)
+
+
+@router.message(BookingStates.ask_age)
+async def save_age(message: Message, state: FSMContext) -> None:
+    user = message.from_user
+    raw_age = (message.text or "").strip()
+    if not user:
+        await message.answer(texts.API_ERROR)
+        return
+    if not raw_age.isdigit():
+        await message.answer(texts.AGE_INVALID)
+        return
+    age = int(raw_age)
+    if not _is_valid_age(age):
+        await message.answer(texts.AGE_INVALID)
+        return
+    try:
+        user_payload = await sync_user(tg_id=user.id, age=age)
+    except HTTPError:
+        await message.answer(texts.API_ERROR)
+        return
+    await message.answer(texts.age_saved(age))
+    await _complete_pending_booking(message, state, user_payload)
+
+
+@router.callback_query(BookingStates.ask_age, F.data == _KEEP_AGE_CALLBACK)
+async def keep_age(callback: CallbackQuery, state: FSMContext) -> None:
+    user = callback.from_user
+    message = callback.message
+    if not user or not message:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    try:
+        user_payload = await sync_user(tg_id=user.id)
+    except HTTPError:
+        await callback.answer(texts.API_ERROR, show_alert=True)
+        return
+    await _complete_pending_booking(message, state, user_payload)
+    await callback.answer(texts.KEPT_AGE)

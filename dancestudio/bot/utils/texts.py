@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Mapping, Sequence
 
 MAIN_MENU = "Что вы хотите сделать?"
@@ -9,8 +7,6 @@ PRODUCTS_PROMPT = "Выберите абонемент:"
 NO_DIRECTIONS = "Пока нет активных направлений"
 API_ERROR = "Не удалось получить данные. Попробуйте позже."
 ITEM_NOT_FOUND = "Элемент не найден. Попробуйте обновить список."
-from typing import Mapping, Sequence
-
 DIRECTIONS_PROMPT = "Выберите направление:"
 NO_BOOKINGS = "У вас пока нет записей."
 BOOKINGS_TITLE = "Ваши записи:"
@@ -37,6 +33,8 @@ ALREADY_BOOKED = "Вы уже записаны на это занятие."
 ASK_FULL_NAME = "Пожалуйста, напишите ваше полное ФИО."
 FULL_NAME_SAVED = "Спасибо! Мы сохранили ваше ФИО."
 FULL_NAME_INVALID = "Пожалуйста, отправьте ФИО текстом."
+ASK_AGE = "Укажите, пожалуйста, ваш возраст (числом)."
+AGE_INVALID = "Пожалуйста, отправьте возраст числом от 3 до 120."
 PAST_SLOT_ERROR = "Запись на прошедшее занятие недоступна."
 NO_SEATS_ERROR = "Свободных мест не осталось."
 ADDRESSES_TITLE = "Наши адреса:"
@@ -58,6 +56,9 @@ PAYMENT_INVOICE_NOTE = (
     "Счёт на оплату отправлен отдельным сообщением в Telegram.\n"
     "Нажмите «Оплатить» в счёте, чтобы завершить оплату."
 )
+PROFILE_DETAILS_REQUIRED = "Пожалуйста, подтвердите ваши ФИО и возраст, чтобы продолжить."
+KEPT_FULL_NAME = "Оставляем текущее ФИО."
+KEPT_AGE = "Оставляем текущий возраст."
 
 
 def _format_price(value: float | int | None) -> str:
@@ -69,6 +70,42 @@ def _format_price(value: float | int | None) -> str:
 
 def format_price(value: float | int | None) -> str:
     return _format_price(value)
+
+
+def ask_full_name(existing_full_name: str | None = None) -> str:
+    if existing_full_name:
+        return (
+            f"Сейчас сохранено ФИО:\n{existing_full_name}\n\n"
+            "Если всё верно, нажмите кнопку ниже или отправьте новое ФИО."
+        )
+    return ASK_FULL_NAME
+
+
+def keep_full_name_button(existing_full_name: str) -> str:
+    return f"Оставить «{existing_full_name}»"
+
+
+def full_name_saved(full_name: str | None = None) -> str:
+    if full_name:
+        return f"Спасибо! Мы сохранили ФИО «{full_name}»."
+    return FULL_NAME_SAVED
+
+
+def ask_age(existing_age: int | None = None) -> str:
+    if existing_age is not None:
+        return (
+            f"Сейчас указан возраст {existing_age}.\n"
+            "Если хотите оставить его, нажмите кнопку ниже или отправьте новый возраст."
+        )
+    return ASK_AGE
+
+
+def keep_age_button(existing_age: int) -> str:
+    return f"Оставить {existing_age}"
+
+
+def age_saved(age: int) -> str:
+    return f"Возраст {age} сохранён."
 
 
 def product_details(product: Mapping[str, object]) -> str:
@@ -238,14 +275,13 @@ def bookings_list(items: Sequence[Mapping[str, object]]) -> str:
             if note:
                 parts.append(note)
             else:
-                parts.append("требуется оплата")
-            lines.append("• " + " — ".join(part for part in parts if part))
-        elif note:
-            lines.append(f"• {title} ({note})")
-        elif status_label:
-            lines.append(f"• {title} ({status_label})")
+                parts.append(status_label)
+            lines.append(" · ".join(part for part in parts if part))
         else:
-            lines.append(f"• {title}")
+            parts = [title, status_label]
+            if note:
+                parts.append(note)
+            lines.append(" · ".join(part for part in parts if part))
     return "\n".join(lines)
 
 
@@ -254,26 +290,17 @@ def subscriptions_summary(items: Sequence[Mapping[str, object]]) -> str:
         return NO_SUBSCRIPTIONS
     lines = [SUBSCRIPTIONS_TITLE]
     for item in items:
-        name = str(item.get("product_name", "") or "Абонемент")
-        remaining_value = item.get("remaining_classes")
-        total_value = item.get("total_classes")
-        remaining_text = None
-        if isinstance(remaining_value, int):
-            if isinstance(total_value, int) and total_value > 0:
-                remaining_text = f"Занятий осталось: {remaining_value} из {total_value}"
+        product_name = str(item.get("product_name", "")) or "Абонемент"
+        remaining = item.get("remaining_classes")
+        total = item.get("total_classes")
+        valid_to = item.get("valid_to_label")
+        parts = [product_name]
+        if isinstance(remaining, int):
+            if isinstance(total, int) and total > 0:
+                parts.append(f"{remaining}/{total} занятий")
             else:
-                remaining_text = f"Занятий осталось: {remaining_value}"
-        valid_until = item.get("valid_to_label")
-        if not isinstance(valid_until, str) or not valid_until.strip():
-            raw_valid = item.get("valid_to")
-            if isinstance(raw_valid, str) and raw_valid.strip():
-                valid_until = raw_valid
-            else:
-                valid_until = ""
-        parts = [name]
-        if remaining_text:
-            parts.append(remaining_text)
-        if valid_until:
-            parts.append(f"Действует до: {valid_until}")
-        lines.append("• " + "; ".join(parts))
+                parts.append(f"Осталось {remaining} занятий")
+        if isinstance(valid_to, str) and valid_to:
+            parts.append(f"Действует до {valid_to}")
+        lines.append(" · ".join(parts))
     return "\n".join(lines)

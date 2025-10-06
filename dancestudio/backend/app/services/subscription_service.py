@@ -8,6 +8,8 @@ from ..db import models
 
 _COMPENSATION_PRODUCT_NAME = "Компенсация отмены занятия"
 _COMPENSATION_VALIDITY_DAYS = 90
+_MANUAL_PRODUCT_NAME = "Абонемент администратора"
+_DEFAULT_MANUAL_VALIDITY_DAYS = 365
 
 
 def _now() -> datetime:
@@ -30,6 +32,29 @@ def _get_compensation_product(db: Session) -> models.Product:
         price=0,
         classes_count=1,
         validity_days=_COMPENSATION_VALIDITY_DAYS,
+        is_active=False,
+    )
+    db.add(product)
+    db.flush()
+    return product
+
+
+def _get_manual_product(db: Session) -> models.Product:
+    product = (
+        db.query(models.Product)
+        .filter(models.Product.name == _MANUAL_PRODUCT_NAME)
+        .filter(models.Product.type == models.ProductType.subscription)
+        .first()
+    )
+    if product:
+        return product
+    product = models.Product(
+        type=models.ProductType.subscription,
+        name=_MANUAL_PRODUCT_NAME,
+        description="Абонемент, выданный администратором",
+        price=0,
+        classes_count=None,
+        validity_days=None,
         is_active=False,
     )
     db.add(product)
@@ -61,6 +86,8 @@ def grant_class_credit(
             subscription = None
     if subscription:
         subscription.remaining_classes += 1
+        if subscription.initial_classes is not None:
+            subscription.initial_classes += 1
         return subscription
 
     product = _get_compensation_product(db)
@@ -85,6 +112,7 @@ def grant_class_credit(
         user_id=user_id,
         product_id=product.id,
         remaining_classes=1,
+        initial_classes=1,
         valid_from=now,
         valid_to=now + timedelta(days=validity_days),
         status=models.SubscriptionStatus.active,
@@ -93,4 +121,29 @@ def grant_class_credit(
     return subscription
 
 
-__all__ = ["grant_class_credit"]
+def issue_manual_subscription(
+    db: Session,
+    *,
+    user_id: int,
+    classes_count: int,
+    validity_days: int | None = None,
+) -> models.Subscription:
+    now = _now()
+    product = _get_manual_product(db)
+    days = validity_days or _DEFAULT_MANUAL_VALIDITY_DAYS
+    subscription = models.Subscription(
+        user_id=user_id,
+        product_id=product.id,
+        remaining_classes=classes_count,
+        initial_classes=classes_count,
+        valid_from=now,
+        valid_to=now + timedelta(days=days),
+        status=models.SubscriptionStatus.active,
+    )
+    db.add(subscription)
+    db.commit()
+    db.refresh(subscription)
+    return subscription
+
+
+__all__ = ["grant_class_credit", "issue_manual_subscription"]

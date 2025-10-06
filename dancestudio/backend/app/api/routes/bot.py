@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, selectinload
@@ -20,6 +20,7 @@ router = APIRouter(prefix="/bot", tags=["bot"])
 class SyncUserRequest(BaseModel):
     tg_id: int
     full_name: str | None = None
+    age: int | None = None
     phone: str | None = None
 
 
@@ -90,9 +91,11 @@ def _sync_user(db: Session, payload: SyncUserRequest) -> models.User:
         created = True
     if payload.full_name is not None:
         user.full_name = payload.full_name
+    if payload.age is not None:
+        user.age = payload.age
     if payload.phone is not None:
         user.phone = payload.phone
-    if created or payload.full_name is not None or payload.phone is not None:
+    if created or payload.full_name is not None or payload.phone is not None or payload.age is not None:
         db.commit()
         db.refresh(user)
     return user
@@ -176,11 +179,21 @@ def sync_user(
 
 @router.get("/addresses", response_model=schemas.StudioAddresses)
 def get_addresses(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[None, Depends(deps.verify_bot_token)],
 ) -> schemas.StudioAddresses:
-    addresses = settings_service.get_addresses(db)
-    return schemas.StudioAddresses(addresses=addresses)
+    addresses, media_items = settings_service.get_addresses(db)
+    media = [
+        schemas.SettingMedia(
+            id=item.id,
+            url=str(request.url_for("media", path=item.file_path)),
+            media_type=item.media_type.value,
+            filename=item.file_name,
+        )
+        for item in media_items
+    ]
+    return schemas.StudioAddresses(addresses=addresses, media=media)
 
 
 @router.get("/users/{tg_id}/bookings", response_model=list[BotBookingResponse])
@@ -261,13 +274,16 @@ def list_user_subscriptions(
             if hasattr(subscription.status, "value")
             else str(subscription.status)
         )
+        total_classes = subscription.initial_classes
+        if total_classes is None and product and product.classes_count is not None:
+            total_classes = product.classes_count
         results.append(
             BotSubscription(
                 id=subscription.id,
                 product_id=subscription.product_id,
                 product_name=product.name if product else "Абонемент",
                 remaining_classes=subscription.remaining_classes,
-                total_classes=product.classes_count if product else None,
+                total_classes=total_classes,
                 valid_from=subscription.valid_from,
                 valid_to=subscription.valid_to,
                 status=status_value,
