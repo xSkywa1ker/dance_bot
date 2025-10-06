@@ -1,6 +1,6 @@
 """Add setting media table and subscription initial classes
 
-Revision ID: 0006_add_setting_media_and_manual_subscription
+Revision ID: 0006_setting_media_manual
 Revises: 0005_extend_payment_provider
 Create Date: 2025-10-07
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = "0006_add_setting_media_and_manual_subscription"
+revision = "0006_setting_media_manual"
 down_revision = "0005_extend_payment_provider"
 branch_labels = None
 depends_on = None
