@@ -16,11 +16,18 @@ branch_labels = None
 depends_on = None
 
 
-media_type_enum = postgresql.ENUM("image", "video", name="settingmediatype")
+media_type_enum = postgresql.ENUM(
+    "image",
+    "video",
+    name="settingmediatype",
+    create_type=False,
+)
 
 
 def upgrade() -> None:
-    media_type_enum.create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("image", "video", name="settingmediatype").create(
+        op.get_bind(), checkfirst=True
+    )
 
     op.create_table(
         "setting_media",
@@ -53,4 +60,6 @@ def downgrade() -> None:
     op.drop_column("subscriptions", "initial_classes")
     op.drop_table("setting_media")
 
-    media_type_enum.drop(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("image", "video", name="settingmediatype").drop(
+        op.get_bind(), checkfirst=True
+    )
