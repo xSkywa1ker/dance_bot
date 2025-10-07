@@ -1,4 +1,4 @@
-from email.parser import BytesParser
+from email.parser import BytesHeaderParser
 from email.policy import default
 from tempfile import SpooledTemporaryFile
 
@@ -74,25 +74,58 @@ async def _extract_uploads(request: Request) -> list[UploadFile]:
     if not body:
         return []
 
-    message_bytes = b"".join(
-        [b"Content-Type: ", header_bytes, b"\r\n\r\n", body]
-    )
+    boundary = params[b"boundary"]
+    delimiter = b"--" + boundary
 
-    try:
-        message = BytesParser(policy=default).parsebytes(message_bytes)
-    except Exception as exc:  # pragma: no cover - defensive
-        raise HTTPException(status_code=400, detail="Malformed multipart payload") from exc
+    header_parser = BytesHeaderParser(policy=default)
 
     uploads: list[UploadFile] = []
-    for part in message.iter_parts():
-        if part.get_content_disposition() != "form-data":
+    for section in body.split(delimiter):
+        if not section:
             continue
 
-        filename = part.get_filename()
+        if section.startswith(b"--"):
+            # reached the closing boundary, stop processing
+            break
+
+        # Trim the leading line break that separates the boundary from headers
+        section = section.lstrip(b"\r\n")
+        if not section:
+            continue
+
+        # Separate headers from payload, accepting both CRLF and LF only separators
+        header_bytes: bytes
+        data: bytes
+        for separator in (b"\r\n\r\n", b"\n\n", b"\r\r"):
+            header_bytes, sep, data = section.partition(separator)
+            if sep:
+                break
+        else:
+            # Unable to find header/body separator, skip this part
+            continue
+
+        # Remove the trailing newline that precedes the next boundary without
+        # touching newlines that are part of the uploaded content.
+        if data.endswith(b"\r\n"):
+            data = data[:-2]
+        elif data.endswith(b"\n") or data.endswith(b"\r"):
+            data = data[:-1]
+
+        if not data:
+            data = b""
+
+        try:
+            headers = header_parser.parsebytes(header_bytes)
+        except Exception:  # pragma: no cover - defensive
+            continue
+
+        if headers.get_content_disposition() != "form-data":
+            continue
+
+        filename = headers.get_filename()
         if not filename:
             continue
 
-        data = part.get_payload(decode=True) or b""
         tmp = SpooledTemporaryFile()
         try:
             tmp.write(data)
@@ -103,10 +136,12 @@ async def _extract_uploads(request: Request) -> list[UploadFile]:
 
         raw_headers = [
             (name.lower().encode("latin-1"), value.encode("latin-1"))
-            for name, value in part.raw_items()
+            for name, value in headers.items()
         ]
         if not any(name == b"content-type" for name, _ in raw_headers):
-            raw_headers.append((b"content-type", part.get_content_type().encode("latin-1")))
+            raw_headers.append(
+                (b"content-type", headers.get_content_type().encode("latin-1"))
+            )
 
         uploads.append(
             UploadFile(
