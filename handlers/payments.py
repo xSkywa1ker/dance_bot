@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from aiogram import Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import LabeledPrice, Message, PreCheckoutQuery
 from aiogram.utils.payload import generate_payload
 from aiogram import F
@@ -14,8 +16,14 @@ router = Router()
 settings = get_settings()
 
 
-@router.message(Command("buy"))
-async def handle_buy_command(message: Message) -> None:
+class BookingForm(StatesGroup):
+    """Conversation steps for collecting booking data before payment."""
+
+    waiting_for_age = State()
+    waiting_for_full_name = State()
+
+
+async def _send_invoice(message: Message) -> None:
     """Send an invoice for the premium subscription purchase."""
 
     payload: str = generate_payload()
@@ -33,6 +41,55 @@ async def handle_buy_command(message: Message) -> None:
         need_phone_number=False,
         need_shipping_address=False,
     )
+
+
+@router.message(Command("buy"))
+async def handle_buy_command(message: Message, state: FSMContext) -> None:
+    """Start the booking flow by requesting the user's age."""
+
+    await state.clear()
+    await state.set_state(BookingForm.waiting_for_age)
+    await message.answer("Для бронирования укажите, пожалуйста, ваш возраст.")
+
+
+@router.message(BookingForm.waiting_for_age, F.text)
+async def handle_age_input(message: Message, state: FSMContext) -> None:
+    """Validate and store the provided age before asking for a full name."""
+
+    raw_age = message.text.strip()
+    if not raw_age.isdigit():
+        await message.answer("Пожалуйста, отправьте возраст числом, например: 25")
+        return
+
+    age = int(raw_age)
+    if age <= 0 or age > 120:
+        await message.answer("Укажите реальный возраст в диапазоне от 1 до 120 лет.")
+        return
+
+    await state.update_data(age=age)
+    await state.set_state(BookingForm.waiting_for_full_name)
+    await message.answer("Спасибо! Теперь отправьте, пожалуйста, ваше ФИО.")
+
+
+@router.message(BookingForm.waiting_for_full_name, F.text)
+async def handle_full_name_input(message: Message, state: FSMContext) -> None:
+    """Store the user's full name, confirm the booking and send the invoice."""
+
+    full_name = message.text.strip()
+    if not full_name:
+        await message.answer("ФИО не может быть пустым. Попробуйте ещё раз.")
+        return
+
+    data = await state.update_data(full_name=full_name)
+    await state.clear()
+
+    age = data.get("age")
+    await message.answer(
+        "Благодарим! Бронь оформлена.\n"
+        f"Возраст: {age}\n"
+        f"ФИО: {full_name}"
+    )
+    await _send_invoice(message)
 
 
 @router.pre_checkout_query()
