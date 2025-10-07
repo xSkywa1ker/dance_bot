@@ -1,5 +1,11 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Request
+from email.parser import BytesParser
+from email.policy import default
+from tempfile import SpooledTemporaryFile
+
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
+from starlette.datastructures import Headers
+from multipart.multipart import parse_options_header
 
 from ...api import deps
 from ...db import models, schemas
@@ -46,13 +52,81 @@ def update_addresses(
     return schemas.StudioAddresses(addresses=addresses, media=media)
 
 
+async def _extract_uploads(request: Request) -> list[UploadFile]:
+    content_type = request.headers.get("content-type")
+    if not content_type:
+        raise HTTPException(status_code=400, detail="Missing Content-Type header")
+
+    try:
+        header_bytes = content_type.encode("latin-1")
+    except UnicodeEncodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid Content-Type header") from exc
+
+    try:
+        media_type, params = parse_options_header(header_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid Content-Type header") from exc
+
+    if media_type != b"multipart/form-data" or b"boundary" not in params:
+        raise HTTPException(status_code=400, detail="Malformed multipart payload")
+
+    body = await request.body()
+    if not body:
+        return []
+
+    message_bytes = b"".join(
+        [b"Content-Type: ", header_bytes, b"\r\n\r\n", body]
+    )
+
+    try:
+        message = BytesParser(policy=default).parsebytes(message_bytes)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise HTTPException(status_code=400, detail="Malformed multipart payload") from exc
+
+    uploads: list[UploadFile] = []
+    for part in message.iter_parts():
+        if part.get_content_disposition() != "form-data":
+            continue
+
+        filename = part.get_filename()
+        if not filename:
+            continue
+
+        data = part.get_payload(decode=True) or b""
+        tmp = SpooledTemporaryFile()
+        try:
+            tmp.write(data)
+            tmp.seek(0)
+        except Exception:
+            tmp.close()
+            raise
+
+        raw_headers = [
+            (name.lower().encode("latin-1"), value.encode("latin-1"))
+            for name, value in part.raw_items()
+        ]
+        if not any(name == b"content-type" for name, _ in raw_headers):
+            raw_headers.append((b"content-type", part.get_content_type().encode("latin-1")))
+
+        uploads.append(
+            UploadFile(
+                file=tmp,
+                size=len(data),
+                filename=filename,
+                headers=Headers(raw=raw_headers),
+            )
+        )
+
+    return uploads
+
+
 @router.post("/addresses/media", response_model=list[schemas.SettingMedia])
 async def upload_addresses_media(
     request: Request,
-    files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
     _: None = Depends(deps.require_roles("admin", "manager")),
 ) -> list[schemas.SettingMedia]:
+    files = await _extract_uploads(request)
     try:
         assets = settings_service.save_addresses_media(db, files)
     except ValueError as exc:
