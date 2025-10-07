@@ -49,7 +49,7 @@ async def handle_buy_command(message: Message, state: FSMContext) -> None:
 
     await state.clear()
     await state.set_state(BookingForm.waiting_for_age)
-    await message.answer("Для бронирования укажите, пожалуйста, ваш возраст.")
+    await message.answer("Введите ваш возраст")
 
 
 @router.message(BookingForm.waiting_for_age, F.text)
@@ -68,7 +68,7 @@ async def handle_age_input(message: Message, state: FSMContext) -> None:
 
     await state.update_data(age=age)
     await state.set_state(BookingForm.waiting_for_full_name)
-    await message.answer("Спасибо! Теперь отправьте, пожалуйста, ваше ФИО.")
+    await message.answer("Введите ваше ФИО")
 
 
 @router.message(BookingForm.waiting_for_full_name, F.text)
@@ -79,16 +79,9 @@ async def handle_full_name_input(message: Message, state: FSMContext) -> None:
     if not full_name:
         await message.answer("ФИО не может быть пустым. Попробуйте ещё раз.")
         return
-
-    data = await state.update_data(full_name=full_name)
+    await state.update_data(full_name=full_name)
     await state.clear()
-
-    age = data.get("age")
-    await message.answer(
-        "Благодарим! Бронь оформлена.\n"
-        f"Возраст: {age}\n"
-        f"ФИО: {full_name}"
-    )
+    await message.answer("Бронь создана, оплатите, пожалуйста")
     await _send_invoice(message)
 
 
