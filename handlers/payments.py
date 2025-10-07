@@ -79,10 +79,8 @@ async def handle_full_name_input(message: Message, state: FSMContext) -> None:
     if not full_name:
         await message.answer("ФИО не может быть пустым. Попробуйте ещё раз.")
         return
-
     await state.update_data(full_name=full_name)
     await state.clear()
-
     await message.answer("Бронь создана, оплатите, пожалуйста")
     await _send_invoice(message)
 
