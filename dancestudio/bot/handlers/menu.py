@@ -77,6 +77,21 @@ async def _safe_edit_message(
     await message.edit_text(text, reply_markup=reply_markup)
 
 
+def _is_outdated_callback_query_error(error: TelegramBadRequest) -> bool:
+    description = (error.message or str(error)).lower()
+    return "query is too old" in description or "query id is invalid" in description
+
+
+async def _safe_answer_callback(callback: CallbackQuery, *args, **kwargs) -> None:
+    try:
+        await callback.answer(*args, **kwargs)
+    except TelegramBadRequest as error:
+        if _is_outdated_callback_query_error(error):
+            logger.debug("Ignoring outdated callback query: %s", error.message)
+            return
+        raise
+
+
 def _is_allowed_payment_url(url: str) -> bool:
     try:
         parsed = urlparse(url)
@@ -336,7 +351,7 @@ async def _process_subscription_purchase(
         products = await fetch_products()
     except HTTPError:
         if callback:
-            await callback.answer(texts.API_ERROR, show_alert=True)
+            await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         else:
             await message.answer(texts.API_ERROR)
         return
@@ -344,7 +359,7 @@ async def _process_subscription_purchase(
     product = next((item for item in products if item.get("id") == product_id), None)
     if not product:
         if callback:
-            await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+            await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         else:
             await message.answer(texts.ITEM_NOT_FOUND)
         return
@@ -367,7 +382,7 @@ async def _process_subscription_purchase(
         else:
             error_text = texts.API_ERROR
         if callback:
-            await callback.answer(error_text, show_alert=True)
+            await _safe_answer_callback(callback, error_text, show_alert=True)
         else:
             await message.answer(error_text)
         return
@@ -436,7 +451,7 @@ async def _process_subscription_purchase(
         else:
             await message.answer(invoice_text, reply_markup=markup)
         if callback:
-            await callback.answer("Счёт на оплату отправлен")
+            await _safe_answer_callback(callback, "Счёт на оплату отправлен")
     else:
         payment_url = _resolve_payment_url(payment_response.get("payment_url"))
         link_available = payment_url is not None
@@ -452,10 +467,10 @@ async def _process_subscription_purchase(
             await message.answer(text, reply_markup=markup)
         if callback:
             if link_available:
-                await callback.answer("Ссылка на оплату отправлена")
+                await _safe_answer_callback(callback, "Ссылка на оплату отправлена")
             else:
                 alert_text = texts.payment_invoice_error(invoice_error)
-                await callback.answer(alert_text, show_alert=True)
+                await _safe_answer_callback(callback, alert_text, show_alert=True)
         elif not link_available:
             alert_text = texts.payment_invoice_error(invoice_error)
             await message.answer(alert_text)
@@ -491,7 +506,7 @@ async def _answer_interaction(
     show_alert: bool = False,
 ) -> None:
     if callback:
-        await callback.answer(text, show_alert=show_alert)
+        await _safe_answer_callback(callback, text, show_alert=show_alert)
     elif text:
         await message.answer(text)
 
@@ -649,9 +664,9 @@ async def _perform_booking_flow(
     await message.answer(text, reply_markup=reply_markup)
     if callback:
         if callback_text:
-            await callback.answer(callback_text, show_alert=callback_alert)
+            await _safe_answer_callback(callback, callback_text, show_alert=callback_alert)
         else:
-            await callback.answer()
+            await _safe_answer_callback(callback)
     await _prompt_profile_if_incomplete(message, state, user_payload)
 
 
@@ -675,7 +690,7 @@ async def show_rules(callback: CallbackQuery) -> None:
         texts.CANCEL_RULES,
         reply_markup=main_menu_keyboard(),
     )
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 @router.callback_query(F.data == "addresses")
@@ -683,7 +698,7 @@ async def show_addresses(callback: CallbackQuery) -> None:
     try:
         result = await fetch_studio_addresses()
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     text = texts.studio_addresses(result.get("addresses"))
     await _safe_edit_message(
@@ -712,7 +727,7 @@ async def show_addresses(callback: CallbackQuery) -> None:
         except TelegramBadRequest:
             logger.exception("Failed to send studio address media group")
             break
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 async def _compose_bookings_view(
@@ -828,7 +843,7 @@ async def _compose_bookings_view(
 async def my_bookings(callback: CallbackQuery) -> None:
     user = callback.from_user
     if not user:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     try:
         await sync_user(tg_id=user.id, full_name=user.full_name)
@@ -837,10 +852,10 @@ async def my_bookings(callback: CallbackQuery) -> None:
     try:
         text, reply_markup, _ = await _compose_bookings_view(user.id)
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     await _safe_edit_message(callback.message, text, reply_markup=reply_markup)
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 @router.callback_query(F.data == "buy_subscription")
@@ -848,7 +863,7 @@ async def show_products(callback: CallbackQuery) -> None:
     try:
         products = await fetch_products()
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
 
     if not products:
@@ -857,7 +872,7 @@ async def show_products(callback: CallbackQuery) -> None:
             texts.NO_PRODUCTS,
             reply_markup=main_menu_keyboard(),
         )
-        await callback.answer()
+        await _safe_answer_callback(callback)
         return
 
     await _safe_edit_message(
@@ -865,7 +880,7 @@ async def show_products(callback: CallbackQuery) -> None:
         texts.PRODUCTS_PROMPT,
         reply_markup=products_keyboard(products),
     )
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 @router.callback_query(F.data.startswith("product:"))
@@ -873,18 +888,18 @@ async def product_details(callback: CallbackQuery) -> None:
     try:
         product_id = int(callback.data.split(":", 1)[1])
     except (IndexError, ValueError):
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     try:
         products = await fetch_products()
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
 
     product = next((item for item in products if item.get("id") == product_id), None)
     if not product:
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     await _safe_edit_message(
@@ -892,7 +907,7 @@ async def product_details(callback: CallbackQuery) -> None:
         texts.product_details(product),
         reply_markup=product_actions_keyboard(product_id),
     )
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 @router.callback_query(F.data.startswith("purchase_product:"))
@@ -900,12 +915,12 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
     user = callback.from_user
     message = callback.message
     if not user or not message:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     try:
         product_id = int(callback.data.split(":", 1)[1])
     except (IndexError, ValueError):
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     try:
@@ -916,7 +931,7 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
     if not await _ensure_profile(
         message, state, user_payload, product_id=product_id, require_age=False
     ):
-        await callback.answer(texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
+        await _safe_answer_callback(callback, texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
         return
 
     await _process_subscription_purchase(
@@ -934,11 +949,11 @@ async def choose_direction(callback: CallbackQuery) -> None:
     try:
         directions = await fetch_directions()
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
 
     if not directions:
-        await callback.answer(texts.NO_DIRECTIONS, show_alert=True)
+        await _safe_answer_callback(callback, texts.NO_DIRECTIONS, show_alert=True)
         return
 
     await _safe_edit_message(
@@ -946,7 +961,7 @@ async def choose_direction(callback: CallbackQuery) -> None:
         texts.DIRECTIONS_PROMPT,
         reply_markup=directions_keyboard(directions),
     )
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 async def _show_direction(callback: CallbackQuery, direction_id: int) -> None:
@@ -954,12 +969,12 @@ async def _show_direction(callback: CallbackQuery, direction_id: int) -> None:
         directions = await fetch_directions()
         slots = await fetch_slots(direction_id=direction_id)
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
 
     direction = next((item for item in directions if item.get("id") == direction_id), None)
     if not direction:
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     if not slots:
@@ -968,7 +983,7 @@ async def _show_direction(callback: CallbackQuery, direction_id: int) -> None:
             texts.no_slots(direction.get("name", "")),
             reply_markup=directions_keyboard(directions),
         )
-        await callback.answer()
+        await _safe_answer_callback(callback)
         return
 
     slot_buttons: list[tuple[int, str]] = []
@@ -989,7 +1004,7 @@ async def _show_direction(callback: CallbackQuery, direction_id: int) -> None:
             texts.no_slots(direction.get("name", "")),
             reply_markup=directions_keyboard(directions),
         )
-        await callback.answer()
+        await _safe_answer_callback(callback)
         return
 
     await _safe_edit_message(
@@ -997,7 +1012,7 @@ async def _show_direction(callback: CallbackQuery, direction_id: int) -> None:
         _direction_title(direction),
         reply_markup=slots_keyboard(direction_id, slot_buttons),
     )
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 @router.callback_query(F.data.startswith("direction:"))
@@ -1005,7 +1020,7 @@ async def show_direction_schedule(callback: CallbackQuery) -> None:
     try:
         direction_id = int(callback.data.split(":", 1)[1])
     except (IndexError, ValueError):
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
     await _show_direction(callback, direction_id)
 
@@ -1017,21 +1032,21 @@ async def show_slot_details(callback: CallbackQuery) -> None:
         direction_id = int(direction_id_str)
         slot_id = int(slot_id_str)
     except (ValueError, IndexError):
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     try:
         directions = await fetch_directions()
         slots = await fetch_slots(direction_id=direction_id)
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
 
     direction = next((item for item in directions if item.get("id") == direction_id), None)
     slot = next((item for item in slots if item.get("id") == slot_id), None)
 
     if not direction or not slot:
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     existing_booking: Mapping[str, object] | None = None
@@ -1091,7 +1106,7 @@ async def show_slot_details(callback: CallbackQuery) -> None:
             payment_button=payment_button,
         ),
     )
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 @router.callback_query(F.data.startswith("back_to_schedule:"))
@@ -1099,7 +1114,7 @@ async def back_to_schedule(callback: CallbackQuery) -> None:
     try:
         direction_id = int(callback.data.split(":", 1)[1])
     except (IndexError, ValueError):
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
     await _show_direction(callback, direction_id)
 
@@ -1109,13 +1124,13 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
     user = callback.from_user
     message = callback.message
     if not user or not message:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     try:
         _, _, slot_id_str = callback.data.split(":", 2)
         slot_id = int(slot_id_str)
     except (ValueError, IndexError):
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     try:
@@ -1124,7 +1139,7 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
         user_payload = None
 
     if not await _ensure_profile(message, state, user_payload, slot_id=slot_id):
-        await callback.answer(texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
+        await _safe_answer_callback(callback, texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
         return
 
     await _perform_booking_flow(
@@ -1142,12 +1157,12 @@ async def send_booking_invoice(callback: CallbackQuery, state: FSMContext) -> No
     user = callback.from_user
     message = callback.message
     if not user or not message:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     try:
         booking_id = int(callback.data.split(":", 1)[1])
     except (IndexError, ValueError):
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     try:
@@ -1158,12 +1173,12 @@ async def send_booking_invoice(callback: CallbackQuery, state: FSMContext) -> No
     try:
         bookings = await fetch_bookings(tg_id=user.id)
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
 
     booking = next((item for item in bookings if item.get("id") == booking_id), None)
     if not booking or booking.get("status") != "reserved":
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     provider = str(booking.get("payment_provider") or "")
@@ -1175,7 +1190,7 @@ async def send_booking_invoice(callback: CallbackQuery, state: FSMContext) -> No
         or not isinstance(order_id, str)
         or not order_id.strip()
     ):
-        await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
+        await _safe_answer_callback(callback, texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
         return
 
     amount_value = booking.get("payment_amount")
@@ -1194,7 +1209,7 @@ async def send_booking_invoice(callback: CallbackQuery, state: FSMContext) -> No
         except (TypeError, ValueError):
             invoice_amount = None
     if invoice_amount is None:
-        await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
+        await _safe_answer_callback(callback, texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
         return
 
     _, long_label = _format_slot_time(slot)
@@ -1216,7 +1231,7 @@ async def send_booking_invoice(callback: CallbackQuery, state: FSMContext) -> No
             payload=payload_value,
         )
     except (TelegramBadRequest, RuntimeError):
-        await callback.answer(texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
+        await _safe_answer_callback(callback, texts.PAYMENT_LINK_UNAVAILABLE_ALERT, show_alert=True)
         return
 
     reply_markup = InlineKeyboardMarkup(
@@ -1226,7 +1241,7 @@ async def send_booking_invoice(callback: CallbackQuery, state: FSMContext) -> No
         ]
     )
     await message.answer(invoice_text, reply_markup=reply_markup)
-    await callback.answer("Счёт на оплату отправлен")
+    await _safe_answer_callback(callback, "Счёт на оплату отправлен")
     await _prompt_profile_if_incomplete(message, state, user_payload)
 
 
@@ -1235,12 +1250,12 @@ async def cancel_booking_callback(callback: CallbackQuery) -> None:
     user = callback.from_user
     message = callback.message
     if not user or not message:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     try:
         booking_id = int(callback.data.split(":", 1)[1])
     except (IndexError, ValueError):
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
         return
 
     try:
@@ -1251,11 +1266,11 @@ async def cancel_booking_callback(callback: CallbackQuery) -> None:
             detail_text = detail.get("detail") if isinstance(detail, dict) else None
             status_code = exc.response.status_code
             if status_code == 404:
-                await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+                await _safe_answer_callback(callback, texts.ITEM_NOT_FOUND, show_alert=True)
             else:
-                await callback.answer(detail_text or texts.API_ERROR, show_alert=True)
+                await _safe_answer_callback(callback, detail_text or texts.API_ERROR, show_alert=True)
         else:
-            await callback.answer(texts.API_ERROR, show_alert=True)
+            await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
 
     slot = booking.get("slot", {})
@@ -1264,14 +1279,14 @@ async def cancel_booking_callback(callback: CallbackQuery) -> None:
     status_value = str(booking.get("status", ""))
 
     if status_value == "late_cancel":
-        await callback.answer(texts.BOOKING_CANCEL_TOO_LATE, show_alert=True)
+        await _safe_answer_callback(callback, texts.BOOKING_CANCEL_TOO_LATE, show_alert=True)
         return
 
     if status_value != "canceled":
-        await callback.answer(texts.BOOKING_CANCEL_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.BOOKING_CANCEL_ERROR, show_alert=True)
         return
 
-    await callback.answer(texts.BOOKING_CANCEL_SUCCESS)
+    await _safe_answer_callback(callback, texts.BOOKING_CANCEL_SUCCESS)
     reply_markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Мои записи", callback_data="my_bookings")],
@@ -1295,11 +1310,11 @@ async def back_to_directions(callback: CallbackQuery) -> None:
     try:
         directions = await fetch_directions()
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
 
     if not directions:
-        await callback.answer(texts.NO_DIRECTIONS, show_alert=True)
+        await _safe_answer_callback(callback, texts.NO_DIRECTIONS, show_alert=True)
         return
 
     await _safe_edit_message(
@@ -1307,7 +1322,7 @@ async def back_to_directions(callback: CallbackQuery) -> None:
         texts.DIRECTIONS_PROMPT,
         reply_markup=directions_keyboard(directions),
     )
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 @router.callback_query(F.data == "back_main")
@@ -1317,7 +1332,7 @@ async def back_to_main(callback: CallbackQuery) -> None:
         texts.MAIN_MENU,
         reply_markup=main_menu_keyboard(),
     )
-    await callback.answer()
+    await _safe_answer_callback(callback)
 
 
 @router.message(BookingStates.ask_full_name)
@@ -1349,22 +1364,22 @@ async def keep_full_name(callback: CallbackQuery, state: FSMContext) -> None:
     user = callback.from_user
     message = callback.message
     if not user or not message:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     try:
         user_payload = await sync_user(tg_id=user.id)
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     existing_age = _extract_age(user_payload)
     data = await state.get_data()
     pending_slot = data.get(_PENDING_SLOT_KEY)
     if isinstance(pending_slot, int) and existing_age is None:
         await _prompt_age(message, state, existing_age)
-        await callback.answer(texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
+        await _safe_answer_callback(callback, texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
         return
     await _complete_pending_booking(message, state, user_payload)
-    await callback.answer(texts.KEPT_FULL_NAME)
+    await _safe_answer_callback(callback, texts.KEPT_FULL_NAME)
 
 
 @router.message(BookingStates.ask_age)
@@ -1395,12 +1410,12 @@ async def keep_age(callback: CallbackQuery, state: FSMContext) -> None:
     user = callback.from_user
     message = callback.message
     if not user or not message:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     try:
         user_payload = await sync_user(tg_id=user.id)
     except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
+        await _safe_answer_callback(callback, texts.API_ERROR, show_alert=True)
         return
     await _complete_pending_booking(message, state, user_payload)
-    await callback.answer(texts.KEPT_AGE)
+    await _safe_answer_callback(callback, texts.KEPT_AGE)
