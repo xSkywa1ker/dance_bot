@@ -59,6 +59,7 @@ _timezone = ZoneInfo(_settings.timezone)
 _KEEP_FULL_NAME_CALLBACK = "profile:keep_full_name"
 _KEEP_AGE_CALLBACK = "profile:keep_age"
 _PENDING_SLOT_KEY = "pending_slot_id"
+_PENDING_PRODUCT_KEY = "pending_product_id"
 _EXISTING_FULL_NAME_KEY = "existing_full_name"
 _EXISTING_AGE_KEY = "existing_age"
 
@@ -254,19 +255,29 @@ async def _ensure_profile(
     user_payload: Mapping[str, object] | None,
     *,
     slot_id: int | None = None,
+    product_id: int | None = None,
+    require_age: bool = True,
 ) -> bool:
     if not message:
         return True
+    pending_updates: dict[str, object] = {}
     if slot_id is not None:
-        await state.update_data(**{_PENDING_SLOT_KEY: slot_id})
+        pending_updates[_PENDING_SLOT_KEY] = slot_id
+    if product_id is not None:
+        pending_updates[_PENDING_PRODUCT_KEY] = product_id
     full_name = _extract_full_name(user_payload)
     if not full_name:
+        if pending_updates:
+            await state.update_data(**pending_updates)
         await _prompt_full_name(message, state)
         return False
-    age = _extract_age(user_payload)
-    if age is None:
-        await _prompt_age(message, state)
-        return False
+    if require_age:
+        age = _extract_age(user_payload)
+        if age is None:
+            if pending_updates:
+                await state.update_data(**pending_updates)
+            await _prompt_age(message, state)
+            return False
     return True
 
 
@@ -287,6 +298,11 @@ async def _complete_pending_booking(
     user_payload: Mapping[str, object] | None,
 ) -> None:
     data = await state.get_data()
+    product_id = data.get(_PENDING_PRODUCT_KEY)
+    if isinstance(product_id, int):
+        await state.clear()
+        await _complete_pending_purchase(message, state, user_payload, product_id)
+        return
     slot_id = data.get(_PENDING_SLOT_KEY)
     if not isinstance(slot_id, int):
         await state.clear()
@@ -304,6 +320,166 @@ async def _complete_pending_booking(
         state=state,
         callback=None,
         user_payload=user_payload,
+    )
+
+
+async def _process_subscription_purchase(
+    *,
+    user,
+    message: Message,
+    product_id: int,
+    state: FSMContext,
+    user_payload: Mapping[str, object] | None,
+    callback: CallbackQuery | None = None,
+) -> None:
+    try:
+        products = await fetch_products()
+    except HTTPError:
+        if callback:
+            await callback.answer(texts.API_ERROR, show_alert=True)
+        else:
+            await message.answer(texts.API_ERROR)
+        return
+
+    product = next((item for item in products if item.get("id") == product_id), None)
+    if not product:
+        if callback:
+            await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
+        else:
+            await message.answer(texts.ITEM_NOT_FOUND)
+        return
+
+    try:
+        payment_response = await create_subscription_payment(
+            tg_id=user.id,
+            product_id=product_id,
+            full_name=_extract_full_name(user_payload),
+            age=_extract_age(user_payload),
+        )
+    except HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            error_text = texts.ITEM_NOT_FOUND
+        elif exc.response is not None and exc.response.status_code == 400:
+            detail = exc.response.json()
+            error_text = detail.get("detail") if isinstance(detail, dict) else None
+            if not isinstance(error_text, str) or not error_text:
+                error_text = texts.API_ERROR
+        else:
+            error_text = texts.API_ERROR
+        if callback:
+            await callback.answer(error_text, show_alert=True)
+        else:
+            await message.answer(error_text)
+        return
+
+    raw_price = product.get("price")
+    price = texts.format_price(raw_price)
+    provider = str(payment_response.get("provider") or "")
+    order_id = payment_response.get("order_id")
+    amount_value = payment_response.get("amount")
+    try:
+        invoice_amount = float(amount_value) if amount_value is not None else None
+    except (TypeError, ValueError):
+        invoice_amount = None
+    if invoice_amount is None:
+        try:
+            invoice_amount = float(raw_price) if raw_price is not None else None
+        except (TypeError, ValueError):
+            invoice_amount = None
+
+    invoice_sent = False
+    invoice_error: str | None = None
+    invoice_text = texts.subscription_payment_details(
+        product.get("name", ""), price or None, via_invoice=True
+    )
+    if (
+        provider == "telegram"
+        and payment_services.payments_enabled()
+        and isinstance(order_id, str)
+        and order_id.strip()
+        and invoice_amount is not None
+    ):
+        try:
+            payload_value = payment_services.build_payload(
+                payment_services.KIND_SUBSCRIPTION, order_id
+            )
+            await payment_services.send_invoice(
+                message,
+                title=product.get("name", "Абонемент") or "Абонемент",
+                description=invoice_text,
+                amount=invoice_amount,
+                payload=payload_value,
+            )
+            invoice_sent = True
+        except RuntimeError as exc:
+            invoice_error = str(exc)
+            invoice_sent = False
+            logger.warning(
+                "Failed to send Telegram invoice for subscription order %s: %s",
+                order_id,
+                exc,
+            )
+        except TelegramBadRequest as exc:
+            invoice_error = payment_services.explain_invoice_error(str(exc))
+            invoice_sent = False
+            logger.exception(
+                "Telegram API rejected subscription invoice for order %s", order_id
+            )
+
+    buttons: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
+    ]
+    markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+    if invoice_sent:
+        if message.from_user and message.from_user.is_bot:
+            await _safe_edit_message(message, invoice_text, reply_markup=markup)
+        else:
+            await message.answer(invoice_text, reply_markup=markup)
+        if callback:
+            await callback.answer("Счёт на оплату отправлен")
+    else:
+        payment_url = _resolve_payment_url(payment_response.get("payment_url"))
+        link_available = payment_url is not None
+        text = texts.subscription_payment_details(
+            product.get("name", ""), price or None, link_available=link_available
+        )
+        if payment_url:
+            buttons = [[InlineKeyboardButton(text="Оплатить", url=payment_url)]] + buttons
+        markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+        if message.from_user and message.from_user.is_bot:
+            await _safe_edit_message(message, text, reply_markup=markup)
+        else:
+            await message.answer(text, reply_markup=markup)
+        if callback:
+            if link_available:
+                await callback.answer("Ссылка на оплату отправлена")
+            else:
+                alert_text = texts.payment_invoice_error(invoice_error)
+                await callback.answer(alert_text, show_alert=True)
+        elif not link_available:
+            alert_text = texts.payment_invoice_error(invoice_error)
+            await message.answer(alert_text)
+
+    await _prompt_profile_if_incomplete(message, state, user_payload)
+
+
+async def _complete_pending_purchase(
+    message: Message,
+    state: FSMContext,
+    user_payload: Mapping[str, object] | None,
+    product_id: int,
+) -> None:
+    user = message.from_user
+    if not user:
+        await message.answer(texts.API_ERROR)
+        return
+    await _process_subscription_purchase(
+        user=user,
+        message=message,
+        product_id=product_id,
+        state=state,
+        user_payload=user_payload,
+        callback=None,
     )
 
 
@@ -737,122 +913,20 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
     except HTTPError:
         user_payload = None
 
-    try:
-        products = await fetch_products()
-    except HTTPError:
-        await callback.answer(texts.API_ERROR, show_alert=True)
-        return
-
-    product = next((item for item in products if item.get("id") == product_id), None)
-    if not product:
-        await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
-        return
-
-    try:
-        payment_response = await create_subscription_payment(
-            tg_id=user.id,
-            product_id=product_id,
-        )
-    except HTTPError as exc:
-        if exc.response is not None and exc.response.status_code == 404:
-            await callback.answer(texts.ITEM_NOT_FOUND, show_alert=True)
-        elif exc.response is not None and exc.response.status_code == 400:
-            detail = exc.response.json()
-            message_text = detail.get("detail") if isinstance(detail, dict) else None
-            if not isinstance(message_text, str) or not message_text:
-                message_text = texts.API_ERROR
-            await callback.answer(message_text, show_alert=True)
-        else:
-            await callback.answer(texts.API_ERROR, show_alert=True)
-        return
-
-    raw_price = product.get("price")
-    price = texts.format_price(raw_price)
-    provider = str(payment_response.get("provider") or "")
-    order_id = payment_response.get("order_id")
-    amount_value = payment_response.get("amount")
-    try:
-        invoice_amount = float(amount_value) if amount_value is not None else None
-    except (TypeError, ValueError):
-        invoice_amount = None
-    if invoice_amount is None:
-        try:
-            invoice_amount = float(raw_price) if raw_price is not None else None
-        except (TypeError, ValueError):
-            invoice_amount = None
-
-    invoice_sent = False
-    invoice_error: str | None = None
-    invoice_text = texts.subscription_payment_details(
-        product.get("name", ""), price or None, via_invoice=True
-    )
-    if (
-        provider == "telegram"
-        and payment_services.payments_enabled()
-        and isinstance(order_id, str)
-        and order_id.strip()
-        and invoice_amount is not None
+    if not await _ensure_profile(
+        message, state, user_payload, product_id=product_id, require_age=False
     ):
-        try:
-            payload_value = payment_services.build_payload(
-                payment_services.KIND_SUBSCRIPTION, order_id
-            )
-            await payment_services.send_invoice(
-                message,
-                title=product.get("name", "Абонемент"),
-                description=invoice_text,
-                amount=invoice_amount,
-                payload=payload_value,
-            )
-            invoice_sent = True
-        except RuntimeError as exc:
-            invoice_error = str(exc)
-            invoice_sent = False
-            logger.warning(
-                "Failed to send Telegram invoice for subscription order %s: %s",
-                order_id,
-                exc,
-            )
-        except TelegramBadRequest as exc:
-            invoice_error = payment_services.explain_invoice_error(str(exc))
-            invoice_sent = False
-            logger.exception(
-                "Telegram API rejected subscription invoice for order %s", order_id
-            )
+        await callback.answer(texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
+        return
 
-    if invoice_sent:
-        buttons = [
-            [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
-        ]
-        await _safe_edit_message(
-            message,
-            invoice_text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-        )
-        await callback.answer("Счёт на оплату отправлен")
-    else:
-        payment_url = _resolve_payment_url(payment_response.get("payment_url"))
-        link_available = payment_url is not None
-        text = texts.subscription_payment_details(
-            product.get("name", ""), price or None, link_available=link_available
-        )
-        buttons: list[list[InlineKeyboardButton]] = []
-        if payment_url:
-            buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
-        buttons.append(
-            [InlineKeyboardButton(text="Главное меню", callback_data="back_main")]
-        )
-        await _safe_edit_message(
-            message,
-            text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-        )
-        if link_available:
-            await callback.answer("Ссылка на оплату отправлена")
-        else:
-            alert_text = texts.payment_invoice_error(invoice_error)
-            await callback.answer(alert_text, show_alert=True)
-    await _prompt_profile_if_incomplete(message, state, user_payload)
+    await _process_subscription_purchase(
+        user=user,
+        message=message,
+        product_id=product_id,
+        state=state,
+        callback=callback,
+        user_payload=user_payload,
+    )
 
 
 @router.callback_query(F.data == "book_class")
@@ -1262,7 +1336,9 @@ async def save_full_name(message: Message, state: FSMContext) -> None:
         await message.answer(texts.API_ERROR)
         return
     await message.answer(texts.full_name_saved(full_name))
-    if _extract_age(user_payload) is None:
+    data = await state.get_data()
+    pending_slot = data.get(_PENDING_SLOT_KEY)
+    if isinstance(pending_slot, int) and _extract_age(user_payload) is None:
         await _prompt_age(message, state)
         return
     await _complete_pending_booking(message, state, user_payload)
@@ -1281,7 +1357,9 @@ async def keep_full_name(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer(texts.API_ERROR, show_alert=True)
         return
     existing_age = _extract_age(user_payload)
-    if existing_age is None:
+    data = await state.get_data()
+    pending_slot = data.get(_PENDING_SLOT_KEY)
+    if isinstance(pending_slot, int) and existing_age is None:
         await _prompt_age(message, state, existing_age)
         await callback.answer(texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
         return
