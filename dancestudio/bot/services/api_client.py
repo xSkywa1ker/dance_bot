@@ -250,6 +250,15 @@ async def fetch_studio_addresses() -> StudioAddresses:
     return result
 
 
+async def download_media(path: str) -> bytes:
+    async with httpx.AsyncClient(
+        base_url=_settings.api_base_url, timeout=10.0
+    ) as client:
+        response = await client.get(_request_path(path), headers=_headers())
+        response.raise_for_status()
+        return response.content
+
+
 __all__ = [
     "Product",
     "Direction",
@@ -270,4 +279,5 @@ __all__ = [
     "create_subscription_payment",
     "confirm_payment",
     "fetch_studio_addresses",
+    "download_media",
 ]

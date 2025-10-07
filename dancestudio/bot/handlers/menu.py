@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+from pathlib import Path
 from datetime import datetime
 from json import JSONDecodeError
 from typing import Mapping
@@ -13,6 +14,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
+    BufferedInputFile,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -43,6 +45,7 @@ from dancestudio.bot.services import (
     fetch_subscriptions,
     sync_user,
     fetch_studio_addresses,
+    download_media,
 )
 from dancestudio.bot.services import payments as payment_services
 from dancestudio.bot.services.api_client import Direction
@@ -731,11 +734,29 @@ async def show_addresses(callback: CallbackQuery) -> None:
         url = item.get("url")
         if not isinstance(url, str) or not url:
             continue
+        try:
+            data = await download_media(url)
+        except HTTPError as error:
+            logger.warning("Failed to download studio media %s: %s", url, error)
+            continue
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("Unexpected error when downloading studio media %s", url)
+            continue
+        if not data:
+            logger.warning("Studio media %s is empty, skipping", url)
+            continue
+        filename_value = item.get("filename")
+        filename = (
+            str(filename_value)
+            if isinstance(filename_value, str) and filename_value.strip()
+            else Path(urlparse(url).path).name or "media"
+        )
+        file = BufferedInputFile(data, filename=filename)
         media_type = str(item.get("media_type") or "image")
         if media_type == "video":
-            media_group.append(InputMediaVideo(media=url))
+            media_group.append(InputMediaVideo(media=file))
         else:
-            media_group.append(InputMediaPhoto(media=url))
+            media_group.append(InputMediaPhoto(media=file))
     for chunk in _chunked(media_group, 10):
         if not chunk:
             continue
