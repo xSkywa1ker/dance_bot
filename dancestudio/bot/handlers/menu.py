@@ -62,6 +62,8 @@ _PENDING_SLOT_KEY = "pending_slot_id"
 _PENDING_PRODUCT_KEY = "pending_product_id"
 _EXISTING_FULL_NAME_KEY = "existing_full_name"
 _EXISTING_AGE_KEY = "existing_age"
+_FORCE_PROFILE_KEY = "force_profile_refresh"
+_REQUIRE_AGE_KEY = "require_age"
 
 
 async def _safe_edit_message(
@@ -212,14 +214,16 @@ async def _prompt_full_name(
     message: Message,
     state: FSMContext,
     existing_full_name: str | None = None,
+    *,
+    force_prompt: bool = False,
 ) -> None:
     if not message:
         return
     await state.set_state(BookingStates.ask_full_name)
-    if existing_full_name:
+    if existing_full_name and not force_prompt:
         await state.update_data(**{_EXISTING_FULL_NAME_KEY: existing_full_name})
     keyboard: InlineKeyboardMarkup | None = None
-    if existing_full_name:
+    if existing_full_name and not force_prompt:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -231,7 +235,7 @@ async def _prompt_full_name(
             ]
         )
     await message.answer(
-        texts.ask_full_name(existing_full_name),
+        texts.ask_full_name(existing_full_name if not force_prompt else None),
         reply_markup=keyboard,
     )
 
@@ -240,14 +244,16 @@ async def _prompt_age(
     message: Message,
     state: FSMContext,
     existing_age: int | None = None,
+    *,
+    force_prompt: bool = False,
 ) -> None:
     if not message:
         return
     await state.set_state(BookingStates.ask_age)
-    if existing_age is not None:
+    if existing_age is not None and not force_prompt:
         await state.update_data(**{_EXISTING_AGE_KEY: existing_age})
     keyboard: InlineKeyboardMarkup | None = None
-    if existing_age is not None:
+    if existing_age is not None and not force_prompt:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -259,7 +265,7 @@ async def _prompt_age(
             ]
         )
     await message.answer(
-        texts.ask_age(existing_age),
+        texts.ask_age(existing_age if not force_prompt else None),
         reply_markup=keyboard,
     )
 
@@ -272,26 +278,37 @@ async def _ensure_profile(
     slot_id: int | None = None,
     product_id: int | None = None,
     require_age: bool = True,
+    force_prompt: bool = False,
 ) -> bool:
     if not message:
         return True
-    pending_updates: dict[str, object] = {}
+    pending_updates: dict[str, object] = {_REQUIRE_AGE_KEY: require_age}
     if slot_id is not None:
         pending_updates[_PENDING_SLOT_KEY] = slot_id
     if product_id is not None:
         pending_updates[_PENDING_PRODUCT_KEY] = product_id
+    if force_prompt:
+        pending_updates[_FORCE_PROFILE_KEY] = True
     full_name = _extract_full_name(user_payload)
-    if not full_name:
-        if pending_updates:
-            await state.update_data(**pending_updates)
-        await _prompt_full_name(message, state)
+    if pending_updates:
+        await state.update_data(**pending_updates)
+    if force_prompt or not full_name:
+        await _prompt_full_name(
+            message,
+            state,
+            None if force_prompt else full_name,
+            force_prompt=force_prompt,
+        )
         return False
-    if require_age:
+    if require_age or force_prompt:
         age = _extract_age(user_payload)
-        if age is None:
-            if pending_updates:
-                await state.update_data(**pending_updates)
-            await _prompt_age(message, state)
+        if age is None or force_prompt:
+            await _prompt_age(
+                message,
+                state,
+                None if force_prompt else age,
+                force_prompt=force_prompt,
+            )
             return False
     return True
 
@@ -929,7 +946,12 @@ async def purchase_product(callback: CallbackQuery, state: FSMContext) -> None:
         user_payload = None
 
     if not await _ensure_profile(
-        message, state, user_payload, product_id=product_id, require_age=False
+        message,
+        state,
+        user_payload,
+        product_id=product_id,
+        require_age=True,
+        force_prompt=True,
     ):
         await _safe_answer_callback(callback, texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
         return
@@ -1138,7 +1160,13 @@ async def book_slot(callback: CallbackQuery, state: FSMContext) -> None:
     except HTTPError:
         user_payload = None
 
-    if not await _ensure_profile(message, state, user_payload, slot_id=slot_id):
+    if not await _ensure_profile(
+        message,
+        state,
+        user_payload,
+        slot_id=slot_id,
+        force_prompt=True,
+    ):
         await _safe_answer_callback(callback, texts.PROFILE_DETAILS_REQUIRED, show_alert=True)
         return
 
@@ -1352,9 +1380,16 @@ async def save_full_name(message: Message, state: FSMContext) -> None:
         return
     await message.answer(texts.full_name_saved(full_name))
     data = await state.get_data()
-    pending_slot = data.get(_PENDING_SLOT_KEY)
-    if isinstance(pending_slot, int) and _extract_age(user_payload) is None:
-        await _prompt_age(message, state)
+    force_prompt = bool(data.get(_FORCE_PROFILE_KEY))
+    require_age = bool(data.get(_REQUIRE_AGE_KEY, True))
+    existing_age = _extract_age(user_payload)
+    if force_prompt or (require_age and existing_age is None):
+        await _prompt_age(
+            message,
+            state,
+            None if force_prompt else existing_age,
+            force_prompt=force_prompt,
+        )
         return
     await _complete_pending_booking(message, state, user_payload)
 
