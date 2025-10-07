@@ -9,6 +9,7 @@ from .api_client import (
     create_subscription_payment,
     sync_user,
     fetch_studio_addresses,
+    download_media,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "create_subscription_payment",
     "sync_user",
     "fetch_studio_addresses",
+    "download_media",
 ]
